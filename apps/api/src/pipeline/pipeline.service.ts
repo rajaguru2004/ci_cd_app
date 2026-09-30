@@ -34,13 +34,17 @@ import {
   unzip,
 } from './artifacts';
 import { MAX_RELEASE_NOTES, StartRunDto } from './pipeline.dto';
+import { LocalRunsService } from '../local/local-runs.service';
+import { VersionCodes } from '../local/version-codes';
+import { PlayClient } from '../play/play.client';
 import {
   STAGES,
   StageKey,
   StageState,
   StageView,
-  StepView,
+  JobView,
   describeRun,
+  jobView,
   mapStages,
   parseReleaseSubject,
   RunIntent,
@@ -89,16 +93,6 @@ export interface StreamResponse {
   refreshedAt: string;
 }
 
-export interface JobView {
-  id: number;
-  name: string;
-  state: StageState;
-  startedAt: string | null;
-  completedAt: string | null;
-  url: string;
-  steps: StepView[];
-}
-
 export interface RunFailure {
   stage: StageKey | null;
   jobId: number;
@@ -143,6 +137,9 @@ export class PipelineService {
 
   constructor(
     private readonly gh: GithubClient,
+    private readonly local: LocalRunsService,
+    private readonly versions: VersionCodes,
+    private readonly play: PlayClient,
     @Inject(CONSOLE_CONFIG) private readonly config: ConsoleConfig,
   ) {}
 
@@ -192,6 +189,10 @@ export class PipelineService {
     const others = (runs ?? []).filter((r) => !shas.has(r.head_sha)).slice(0, 12);
     const summaries = await this.summarize([...visible, ...others]);
     const byId = new Map(summaries.map((s) => [s.id, s]));
+    // Runs of uploaded ZIPs join their commit when the ZIP named it (GitHub's ZIPs do).
+    const local = (await this.local.list().catch(() => [] as RunSummary[])).slice(0, 30);
+    const localOnCommits = local.filter((r) => r.sha && shas.has(r.sha));
+    const localElsewhere = local.filter((r) => !r.sha || !shas.has(r.sha));
 
     const tagsBySha = new Map<string, string[]>();
     for (const t of tags) tagsBySha.set(t.commit.sha, [...(tagsBySha.get(t.commit.sha) ?? []), t.name]);
@@ -201,6 +202,8 @@ export class PipelineService {
       const s = byId.get(r.id);
       if (s) runsBySha.set(r.head_sha, [...(runsBySha.get(r.head_sha) ?? []), s]);
     }
+    for (const s of localOnCommits) runsBySha.set(s.sha, [...(runsBySha.get(s.sha) ?? []), s]);
+    const newestFirst = (a: RunSummary, b: RunSummary) => Date.parse(b.createdAt) - Date.parse(a.createdAt);
 
     return {
       repo: {
@@ -227,10 +230,12 @@ export class PipelineService {
           tags: tagsBySha.get(c.sha) ?? [],
           release: parseReleaseSubject(subject),
           // Newest run first: the ring on the rail shows the latest verdict.
-          runs: (runsBySha.get(c.sha) ?? []).sort((a, b) => b.id - a.id),
+          runs: (runsBySha.get(c.sha) ?? []).sort(newestFirst),
         };
       }),
-      otherRuns: others.map((r) => byId.get(r.id)).filter((s): s is RunSummary => Boolean(s)),
+      otherRuns: [...others.map((r) => byId.get(r.id)).filter((s): s is RunSummary => Boolean(s)), ...localElsewhere]
+        .sort(newestFirst)
+        .slice(0, 16),
       rate: this.gh.rateLimit,
       refreshedAt: new Date().toISOString(),
     };
@@ -265,7 +270,7 @@ export class PipelineService {
       },
       plan,
       stages,
-      jobs: jobs.map((j) => this.toJobView(j, stages)),
+      jobs: jobs.map((j) => jobView(j, stages)),
       artifacts: artifacts.map((a) => ({ id: a.id, name: a.name, sizeBytes: a.size_in_bytes, expired: a.expired })),
       tests,
       build,
@@ -317,12 +322,19 @@ export class PipelineService {
       throw new BadRequestException(`Release notes must be at most ${MAX_RELEASE_NOTES} characters.`);
     }
     const requestId = randomBytes(3).toString('hex');
+    // With Google Play readable, the console allocates the code (Play's highest + 1, above every
+    // code its builder used); without it, the workflow falls back to run number + offset.
+    const versionCode =
+      this.play.keyState().kind === 'ready' && dto.mode !== 'validate'
+        ? String(await this.versions.next(await this.local.knownCodes()))
+        : '';
     const inputs = {
       mode: dto.mode,
       track,
       release_notes: dto.mode === 'release' ? notes : '',
       release_status: dto.releaseStatus ?? 'completed',
       version_name: dto.versionName ?? '',
+      version_code: versionCode,
       integration_tests: dto.integrationTests ? 'true' : 'false',
       rehearsal: dto.mode === 'release' && dto.rehearsal ? 'true' : 'false',
       request_id: requestId,
@@ -462,31 +474,6 @@ export class PipelineService {
       url: run.html_url,
       actor: actor ? { login: actor.login, avatarUrl: actor.avatar_url ?? null } : null,
       stages: mapStages(jobs, run).map((s) => ({ key: s.key, state: s.state })),
-    };
-  }
-
-  private toJobView(job: GhJob, stages: StageView[]): JobView {
-    const steps = stages.flatMap((s) => s.steps).filter((s) => s.jobId === job.id).sort((a, b) => a.number - b.number);
-    const state: StageState =
-      job.status === 'completed'
-        ? job.conclusion === 'success'
-          ? 'success'
-          : job.conclusion === 'skipped'
-            ? 'skipped'
-            : job.conclusion === 'cancelled'
-              ? 'cancelled'
-              : 'failed'
-        : job.status === 'in_progress'
-          ? 'running'
-          : 'queued';
-    return {
-      id: job.id,
-      name: job.name,
-      state,
-      startedAt: job.started_at ?? null,
-      completedAt: job.completed_at ?? null,
-      url: job.html_url,
-      steps,
     };
   }
 

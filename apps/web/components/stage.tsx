@@ -69,7 +69,7 @@ function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: nu
 
 export function ringLabel(run: RunSummary): string {
   const parts = run.stages.map((s) => `${STAGE_LABELS[s.key]} ${STATE_WORD[s.state]}`);
-  return `Run ${run.number}, ${RUN_WORD[run.state].toLowerCase()}: ${parts.join(', ')}`;
+  return `${run.id < 0 ? 'ZIP run' : 'Run'} ${run.number}, ${RUN_WORD[run.state].toLowerCase()}: ${parts.join(', ')}`;
 }
 
 /** True when this run put a build on a Google Play track. */

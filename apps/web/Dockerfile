@@ -18,7 +18,10 @@ RUN npm run build
 
 FROM node:20-alpine
 WORKDIR /app
-ENV NODE_ENV=production \
+# Also read at run time, by the upload route that streams source ZIPs to the API.
+ARG API_INTERNAL_URL=http://api:3001
+ENV API_INTERNAL_URL=$API_INTERNAL_URL \
+    NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME=0.0.0.0

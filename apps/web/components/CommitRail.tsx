@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import clsx from 'clsx';
 import { GitBranch, RefreshCw, Tag, TriangleAlert } from 'lucide-react';
-import { ago, short } from '@/lib/format';
+import { ago, runLabel, short } from '@/lib/format';
 import type { RunSummary, StreamCommit, StreamResponse } from '@/lib/types';
 import { RUN_INK, RUN_WORD, StageRing, ringLabel, shipped } from './stage';
 
@@ -167,7 +167,7 @@ export function CommitRail({
                           {c.runs.slice(0, 3).map((r) => (
                             <span key={r.id} className="inline-flex items-center gap-1">
                               <span className="font-medium text-body">
-                                #{r.number} {runName(r)}
+                                {runLabel(r)} {runName(r)}
                               </span>
                               <span className={RUN_INK[r.state]}>{RUN_WORD[r.state].toLowerCase()}</span>
                             </span>
@@ -207,10 +207,18 @@ export function CommitRail({
                     <StageRing stages={r.stages} shippedCore={shipped(r)} label={ringLabel(r)} size={24} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-medium text-ink">
-                        #{r.number} {runName(r)}
+                        {runLabel(r)} {runName(r)}
                       </span>
                       <span className="block truncate text-[12px] text-muted">
-                        {r.branch ?? 'unknown ref'} · <span className="font-mono">{short(r.sha)}</span> · {ago(r.createdAt, now)}
+                        {r.branch ?? 'unknown ref'}
+                        {r.sha && (
+                          <>
+                            {' · '}
+                            <span className="font-mono">{short(r.sha)}</span>
+                          </>
+                        )}
+                        {' · '}
+                        {ago(r.createdAt, now)}
                       </span>
                     </span>
                   </button>

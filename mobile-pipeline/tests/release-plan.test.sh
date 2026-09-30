@@ -107,6 +107,11 @@ check "override wins" "$(out version_name)" 2.3.4
 run ok "dispatch validate" EVENT=workflow_dispatch IN_MODE=validate
 check "validate publish" "$(out publish)" false
 run fail "bad default track variable" EVENT=workflow_dispatch IN_MODE=build DEFAULT_TRACK=bogus
+run ok "console version code override" EVENT=workflow_dispatch IN_MODE=build IN_VERSION_CODE=1042
+check "override code" "$(out version_code)" 1042
+run fail "bad version code override" EVENT=workflow_dispatch IN_MODE=build IN_VERSION_CODE=12a
+run ok "override ignored on push" EVENT=push REF=refs/heads/main SHA="$main_sha" HEAD_MESSAGE="release: x" IN_VERSION_CODE=5
+check "push keeps run number + offset" "$(out version_code)" 1007
 run fail "bad version code offset" EVENT=workflow_dispatch IN_MODE=build CODE_OFFSET=1e3
 run ok "custom offset" EVENT=workflow_dispatch IN_MODE=build CODE_OFFSET=500
 check "custom offset code" "$(out version_code)" 507

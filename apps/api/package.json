@@ -29,16 +29,23 @@
     "@types/express": "^5.0.3",
     "@types/jest": "^30.0.0",
     "@types/libsodium-wrappers": "^0.7.14",
+    "@types/multer": "^2.3.0",
     "@types/node": "^20.19.0",
     "jest": "^30.0.0",
     "ts-jest": "^29.4.0",
     "typescript": "^5.7.3"
   },
   "jest": {
-    "moduleFileExtensions": ["js", "json", "ts"],
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
-    "transform": { "^.+\\.ts$": "ts-jest" },
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
     "testEnvironment": "node"
   }
 }

@@ -4,12 +4,14 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import clsx from 'clsx';
-import { ArrowLeft, GitCommitHorizontal, KeyRound, Play } from 'lucide-react';
+import { ArrowLeft, GitCommitHorizontal, KeyRound, Play, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ago, short } from '@/lib/format';
 import type { Mode, PlayResponse, RunSummary, StreamCommit, StreamResponse } from '@/lib/types';
 import { useNow, usePoll } from '@/lib/usePoll';
+import { useHealth } from '@/lib/useHealth';
 import { CommitRail } from '@/components/CommitRail';
+import { LocalRunsRail } from '@/components/LocalRunsRail';
 import { PlayTracks } from '@/components/PlayTracks';
 import { RunPanel } from '@/components/RunPanel';
 import { StartSheet, StartedRun } from '@/components/StartSheet';
@@ -44,7 +46,21 @@ function Console() {
   const [anyActive, setAnyActive] = useState(false);
   const stream = usePoll(loadStream, anyActive || pendingStart ? 5000 : 15000, [branchParam]);
   const play = usePoll<PlayResponse>(() => api<PlayResponse>('/play'), 120_000, []);
-  const now = useNow(true, anyActive ? 1000 : 30_000);
+  const health = useHealth();
+  const uploadsEnabled = Boolean(health?.builderConfigured);
+  // GitHub unreadable (no token, a token that cannot see the repo, GitHub down): there is no
+  // commit stream, so the runs of uploaded ZIPs on this server are listed instead.
+  const githubOff = !stream.data && Boolean(stream.error);
+  const [localActive, setLocalActive] = useState(false);
+  const local = usePoll<RunSummary[]>(
+    githubOff ? () => api<RunSummary[]>('/local-runs') : null,
+    githubOff ? (localActive ? 4000 : 15000) : null,
+    [githubOff],
+  );
+  useEffect(() => {
+    setLocalActive(Boolean(local.data?.some((r) => r.state === 'running' || r.state === 'queued')));
+  }, [local.data]);
+  const now = useNow(true, anyActive || localActive ? 1000 : 30_000);
 
   useEffect(() => {
     api<{ defaultBranch: string; branches: string[] }>('/branches')
@@ -69,9 +85,10 @@ function Console() {
     (runFromParam ? commits.find((c) => c.runs.some((r) => r.id === runFromParam)) : undefined) ??
     (commitParam || runFromParam ? undefined : (commits.find((c) => c.runs.length) ?? commits[0])) ??
     null;
-  const selectedRunId = runFromParam ?? selectedCommit?.runs[0]?.id ?? null;
-  const selectedRun = allRuns.find((r) => r.id === selectedRunId) ?? null;
-  const siblings = selectedCommit?.runs ?? (selectedRun ? [selectedRun] : []);
+  const localRuns = useMemo(() => (githubOff ? (local.data ?? []) : []), [githubOff, local.data]);
+  const selectedRunId = githubOff ? (runFromParam ?? localRuns[0]?.id ?? null) : (runFromParam ?? selectedCommit?.runs[0]?.id ?? null);
+  const selectedRun = [...allRuns, ...localRuns].find((r) => r.id === selectedRunId) ?? null;
+  const siblings = githubOff ? (selectedRun ? [selectedRun] : []) : (selectedCommit?.runs ?? (selectedRun ? [selectedRun] : []));
 
   function setQuery(next: Record<string, string | null>) {
     const sp = new URLSearchParams(params.toString());
@@ -101,17 +118,23 @@ function Console() {
     setBusyStream(false);
   }
   function started(run: StartedRun) {
+    if (run.runId !== null && run.runId < 0) {
+      // A run of an uploaded ZIP: the builder has it already; no branch to switch to.
+      setQuery({ run: String(run.runId), commit: null });
+      setDetailOnPhone(true);
+      void local.refresh();
+      window.setTimeout(() => void stream.refresh(), 1500);
+      return;
+    }
     setPendingStart(run);
     if (run.runId) setQuery({ run: String(run.runId), commit: null, branch: run.branch === data?.repo.defaultBranch ? null : run.branch });
     setDetailOnPhone(true);
     window.setTimeout(() => void stream.refresh(), 2500);
   }
 
-  const noToken = stream.error?.status === 503;
-
   return (
     <div className="flex h-svh flex-col">
-      <TopBar onStart={() => openStart('build')} setupAttention={Boolean(noToken || (data && !data.workflow.present))} />
+      <TopBar onStart={() => openStart('build')} setupAttention={Boolean(githubOff || (data && !data.workflow.present))} />
 
       <div className="grid min-h-0 flex-1 lg:grid-cols-[400px_minmax(0,1fr)]">
         <aside
@@ -137,16 +160,29 @@ function Console() {
               <div className="h-[52px] animate-pulse rounded-[var(--radius-card)] bg-line-soft" />
             )}
           </section>
+          {githubOff && uploadsEnabled ? (
+            <LocalRunsRail
+              runs={local.data}
+              loading={local.loading}
+              error={local.error?.message ?? null}
+              selectedRunId={selectedRunId}
+              onSelectRun={selectRun}
+              onUpload={() => openStart('build')}
+              now={now}
+            />
+          ) : (
           <CommitRail
             stream={data}
-            error={noToken ? null : (stream.error?.message ?? null)}
+            error={githubOff ? null : (stream.error?.message ?? null)}
             loading={stream.loading || busyStream}
             empty={
-              noToken ? (
+              githubOff ? (
                 <div className="px-6 py-8">
                   <p className="font-semibold text-ink">No commits to show yet</p>
                   <p className="mt-1 text-[13px] text-muted">
-                    The commit stream and every run come from GitHub, and the console has no GitHub token yet.
+                    {stream.error?.status === 503
+                      ? 'The commit stream and every run come from GitHub, and the console has no GitHub token yet.'
+                      : stream.error?.message}
                   </p>
                   <Link href="/setup" className="mt-3 inline-block text-[13px] font-semibold text-brand underline">
                     Connect GitHub in Setup
@@ -163,6 +199,7 @@ function Console() {
             onRefresh={refreshStream}
             now={now}
           />
+          )}
         </aside>
 
         <main className={clsx('min-h-0 overflow-y-auto', detailOnPhone ? 'block' : 'hidden lg:block')}>
@@ -173,7 +210,7 @@ function Console() {
               onClick={() => setDetailOnPhone(false)}
             >
               <ArrowLeft size={16} aria-hidden />
-              Commits
+              {githubOff && uploadsEnabled ? 'Builds' : 'Commits'}
             </button>
 
             {pendingStart && !pendingStart.runId && (
@@ -182,8 +219,12 @@ function Console() {
               </p>
             )}
 
-            {noToken ? (
-              <ConnectGithub message={stream.error?.message ?? ''} playConnected={Boolean(play.data?.configured)} />
+            {githubOff && !(uploadsEnabled && selectedRunId) ? (
+              <ConnectGithub
+                message={stream.error?.message ?? ''}
+                playConnected={Boolean(play.data?.configured)}
+                onUpload={uploadsEnabled ? () => openStart('build') : null}
+              />
             ) : selectedRunId ? (
               <RunPanel
                 key={selectedRunId}
@@ -191,7 +232,10 @@ function Console() {
                 siblings={siblings}
                 onSelectRun={(id) => setQuery({ run: String(id) })}
                 now={now}
-                onChanged={() => void stream.refresh()}
+                onChanged={() => {
+                  void stream.refresh();
+                  void local.refresh();
+                }}
               />
             ) : selectedCommit ? (
               <NoRun
@@ -217,7 +261,8 @@ function Console() {
         defaultBranch={data?.branch ?? branchParam ?? 'main'}
         initialMode={startMode}
         onStarted={started}
-        blocked={noToken ? (stream.error?.message ?? 'The console has no GitHub token.') : null}
+        blocked={githubOff ? (stream.error?.message ?? 'The console has no GitHub token.') : null}
+        uploadsEnabled={uploadsEnabled}
       />
     </div>
   );
@@ -275,7 +320,7 @@ function NoRun({
   );
 }
 
-function ConnectGithub({ message, playConnected }: { message: string; playConnected: boolean }) {
+function ConnectGithub({ message, playConnected, onUpload }: { message: string; playConnected: boolean; onUpload: (() => void) | null }) {
   return (
     <article className="panel max-w-3xl px-6 py-7" aria-labelledby="connect-title">
       <div className="flex items-start gap-4">
@@ -291,9 +336,22 @@ function ConnectGithub({ message, playConnected }: { message: string; playConnec
             {playConnected ? 'Google Play is already connected (left). ' : ''}Everything about builds, tests, logs and the AAB comes
             from GitHub Actions, so the console needs a token that can read and start runs on the mobile repository.
           </p>
-          <Link href="/setup" className="btn btn-primary mt-5">
-            Open Setup
-          </Link>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Link href="/setup" className={onUpload ? 'btn btn-secondary' : 'btn btn-primary'}>
+              Open Setup
+            </Link>
+            {onUpload && (
+              <button type="button" className="btn btn-primary" onClick={onUpload}>
+                <Upload size={15} aria-hidden />
+                Build from a source ZIP
+              </button>
+            )}
+          </div>
+          {onUpload && (
+            <p className="mt-3 max-w-[68ch] text-[13px] text-muted">
+              Until then, upload the source ZIP (GitHub → Code → Download ZIP): this server unpacks it and runs the same pipeline.
+            </p>
+          )}
         </div>
       </div>
     </article>

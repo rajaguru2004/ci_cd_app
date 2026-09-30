@@ -247,7 +247,7 @@ function aggregate(stage: StageKey, steps: StepView[], jobs: GhJob[]): StageStat
 
 // ─── What started a run ────────────────────────────────────────────────────────────────
 
-export type Trigger = 'console' | 'commit' | 'tag' | 'other';
+export type Trigger = 'console' | 'commit' | 'tag' | 'upload' | 'other';
 export type Mode = 'build' | 'release' | 'validate';
 export const PLAY_TRACKS = ['internal', 'alpha', 'beta', 'production'] as const;
 export type PlayTrack = (typeof PLAY_TRACKS)[number];
@@ -326,4 +326,45 @@ export function describeRun(run: Pick<GhWorkflowRun, 'event' | 'head_branch' | '
     };
   }
   return { trigger: 'other', mode: null, track: null, tag: null, requestId: null, rehearsal: false };
+}
+
+// ─── Job views (shared by GitHub runs and runs on this server) ─────────────────────────────
+
+export interface JobView {
+  id: number;
+  name: string;
+  state: StageState;
+  startedAt: string | null;
+  completedAt: string | null;
+  /** Where to watch it on GitHub; empty for a run on this server. */
+  url: string;
+  steps: StepView[];
+}
+
+export function jobView(job: GhJob, stages: StageView[]): JobView {
+  const steps = stages
+    .flatMap((s) => s.steps)
+    .filter((s) => s.jobId === job.id)
+    .sort((a, b) => a.number - b.number);
+  const state: StageState =
+    job.status === 'completed'
+      ? job.conclusion === 'success'
+        ? 'success'
+        : job.conclusion === 'skipped'
+          ? 'skipped'
+          : job.conclusion === 'cancelled'
+            ? 'cancelled'
+            : 'failed'
+      : job.status === 'in_progress'
+        ? 'running'
+        : 'queued';
+  return {
+    id: job.id,
+    name: job.name,
+    state,
+    startedAt: job.started_at ?? null,
+    completedAt: job.completed_at ?? null,
+    url: job.html_url,
+    steps,
+  };
 }

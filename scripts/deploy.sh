@@ -7,7 +7,7 @@
 #                                      tags :<tag> (default: git sha or date) and :latest
 #   ./scripts/deploy.sh server [tag]   on the server: pull those images and restart
 #   ./scripts/deploy.sh check          health, sign-in page, Google Play key, GitHub token
-#   ./scripts/deploy.sh logs           follow both containers' logs
+#   ./scripts/deploy.sh logs           follow the containers' logs
 #   ./scripts/deploy.sh down           stop the console (images and config stay)
 #
 # Refuses to start with a missing .env, an empty password, or an unreadable Play key,
@@ -41,6 +41,12 @@ preflight() {
     red "SESSION_SECRET must be at least 32 characters (openssl rand -hex 32)."
     exit 1
   fi
+  local token
+  token="$(env_value BUILDER_TOKEN)"
+  if [[ ${#token} -lt 32 ]]; then
+    red "BUILDER_TOKEN must be at least 32 characters (openssl rand -hex 32); the api uses it to reach the builder."
+    exit 1
+  fi
   local key
   key="$(env_value PLAY_KEY_FILE)"
   key="${key:-./secrets/play-service-account.json}"
@@ -55,7 +61,12 @@ PY
     red "The Play key must be readable by uid 1000 (the container user): sudo chown 1000:1000 $key && chmod 600 $key"
     exit 1
   fi
-  [[ -n "$(env_value GITHUB_TOKEN)" ]] || red "Note: GITHUB_TOKEN is empty — the console starts in setup-only mode (Google Play works, builds do not)."
+  [[ -n "$(env_value GITHUB_TOKEN)" ]] || red "Note: GITHUB_TOKEN is empty — GitHub runs are off; builds of uploaded source ZIPs and Google Play work."
+  local free_gb
+  free_gb="$(df -Pk /var/lib/docker 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"
+  if [[ -n "$free_gb" && "$free_gb" -lt 20 ]]; then
+    red "Note: only ${free_gb} GB free for Docker; the builder image is ~8 GB and its caches grow to several GB."
+  fi
   green "ok"
 }
 
@@ -75,6 +86,12 @@ check() {
   done
   curl -fsS "http://127.0.0.1:${port}/api/health" && echo
   green "console up on http://127.0.0.1:${port}"
+  local builder
+  if builder="$(docker compose exec -T builder node -e "fetch('http://127.0.0.1:4000/health').then(r=>r.text()).then(t=>{console.log(t);process.exit(0)}).catch(()=>process.exit(1))" 2>/dev/null)"; then
+    echo "  builder: ${builder}"
+  else
+    red "The builder is not answering; uploaded ZIPs cannot be built (docker compose logs builder)."
+  fi
   docker compose exec -T api node dist/cli/play-check.js 2>/dev/null | sed 's/^/  /' || red "Google Play check failed (see above)."
 }
 
@@ -82,15 +99,15 @@ cmd="${1:-up}"
 case "$cmd" in
   up)
     preflight
-    step "Build and start"
+    step "Build and start (the first build downloads the Android toolchain: ~8 GB, 15–30 min)"
     docker compose up -d --build
     check
     ;;
   push)
     tag="${2:-$(tag_default)}"
-    step "Build and push ${IMAGE_PREFIX:-rajaguru2004/fusionhrm-mobile-ci}-{api,web}:${tag}"
+    step "Build and push ${IMAGE_PREFIX:-rajaguru2004/fusionhrm-mobile-ci}-{api,web,builder}:${tag}"
     IMAGE_TAG="$tag" docker compose build
-    for svc in api web; do
+    for svc in api web builder; do
       img="${IMAGE_PREFIX:-rajaguru2004/fusionhrm-mobile-ci}-${svc}"
       docker tag "${img}:${tag}" "${img}:latest"
       docker push "${img}:${tag}"

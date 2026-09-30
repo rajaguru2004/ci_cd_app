@@ -58,6 +58,10 @@ on:
         description: Version name override, MAJOR.MINOR.PATCH (blank = pubspec.yaml)
         type: string
         default: ""
+      version_code:
+        description: Version code override (blank = run number + VERSION_CODE_OFFSET); the console sets it from Google Play
+        type: string
+        default: ""
       integration_tests:
         description: Also run the emulator smoke suite before building
         type: boolean
@@ -133,6 +137,7 @@ jobs:
           IN_NOTES: ${{ inputs.release_notes }}
           IN_STATUS: ${{ inputs.release_status }}
           IN_VERSION: ${{ inputs.version_name }}
+          IN_VERSION_CODE: ${{ inputs.version_code }}
           IN_INTEGRATION: ${{ inputs.integration_tests }}
           IN_REHEARSAL: ${{ inputs.rehearsal }}
           REQUEST_ID: ${{ inputs.request_id }}

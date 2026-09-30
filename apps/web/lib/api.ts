@@ -56,3 +56,35 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
   if (!res.ok) throw new ApiError(messageFrom(body, res.status), res.status);
   return body as T;
 }
+
+/**
+ * Sends a multipart form (a source ZIP and its fields) and reports upload progress, which
+ * fetch cannot. Errors read exactly like api()'s.
+ */
+export function uploadForm<T>(path: string, form: FormData, onProgress: (fraction: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api${path}`);
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
+    };
+    xhr.onerror = () => reject(new ApiError('The upload was interrupted. Check the connection and try again.', 0));
+    xhr.onload = () => {
+      let body: unknown = null;
+      try {
+        body = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        body = xhr.responseText;
+      }
+      if (xhr.status === 401 && typeof window !== 'undefined') {
+        window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+        return reject(new ApiError('Signed out.', 401));
+      }
+      if (xhr.status === 413) return reject(new ApiError('That ZIP is larger than the console accepts (MAX_UPLOAD_MB).', 413));
+      if (xhr.status < 200 || xhr.status >= 300) return reject(new ApiError(messageFrom(body, xhr.status), xhr.status));
+      resolve(body as T);
+    };
+    xhr.send(form);
+  });
+}

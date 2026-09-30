@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { ChevronRight, Download, ExternalLink, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
@@ -9,8 +9,14 @@ import { LogLine, parseLog, splitByStep } from '@/lib/log';
 import type { JobView, LogResponse, StageView, StepView } from '@/lib/types';
 import { StateGlyph } from './stage';
 
-/** Finished job logs never change: keep them for the life of the page. */
-const LOGS = new Map<number, string>();
+/**
+ * Finished job logs never change: keep them for the life of the page, keyed by run and job
+ * (jobs of runs on this server are numbered from 1 in every run).
+ */
+const LOGS = new Map<string, string>();
+
+/** How often a job running on this server has its log read again. */
+const LIVE_MS = 2500;
 
 const CHUNK = 250;
 
@@ -116,7 +122,13 @@ export function LogPane({
     stageJobs[stageJobs.length - 1];
   const [jobId, setJobId] = useState<number | null>(preferred?.id ?? null);
   const job = stageJobs.find((j) => j.id === jobId) ?? preferred ?? null;
-  const [text, setText] = useState<string | null>(job ? (LOGS.get(job.id) ?? null) : null);
+  // Runs of uploaded ZIPs run on this server, whose logs can be read while the job runs.
+  const local = runId < 0;
+  const logKey = job ? `${runId}:${job.id}` : null;
+  const [text, setText] = useState<string | null>(logKey ? (LOGS.get(logKey) ?? null) : null);
+  const shownKey = useRef<string | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
   const [note, setNote] = useState<{ reason: string; liveUrl?: string } | null>(null);
   const [query, setQuery] = useState('');
   const [raw, setRaw] = useState(false);
@@ -128,35 +140,56 @@ export function LogPane({
 
   const finished = Boolean(job?.completedAt) && job?.state !== 'running' && job?.state !== 'queued';
 
+  const started = Boolean(job?.startedAt);
+  const jobUrl = job?.url ?? '';
+
   useEffect(() => {
     let cancelled = false;
+    let timer: number | undefined;
     setNote(null);
-    if (!job) return;
-    const cached = LOGS.get(job.id);
+    if (!job || !logKey) return;
+    const cached = LOGS.get(logKey);
     if (cached !== undefined) {
+      shownKey.current = logKey;
       setText(cached);
       return;
     }
-    setText(null);
-    if (!finished) {
-      setNote({ reason: 'GitHub publishes the full log when this job finishes. The steps update live.', liveUrl: job.url });
+    // Keep what is on screen while the same job's log is read again (live, or once it ends).
+    if (shownKey.current !== logKey) setText(null);
+    shownKey.current = logKey;
+    if (!finished && !local) {
+      setNote({ reason: 'GitHub publishes the full log when this job finishes. The steps update live.', liveUrl: jobUrl || undefined });
       return;
     }
-    api<LogResponse>(`/runs/${runId}/jobs/${job.id}/log`)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.available) {
-          LOGS.set(job.id, res.text);
-          setText(res.text);
-        } else {
-          setNote({ reason: res.reason, liveUrl: res.liveUrl });
-        }
-      })
-      .catch((e: unknown) => !cancelled && setNote({ reason: e instanceof ApiError ? e.message : 'The log could not be loaded.' }));
+    if (!finished && !started) return;
+    const load = () =>
+      api<LogResponse>(`/runs/${runId}/jobs/${job.id}/log`)
+        .then((res) => {
+          if (cancelled) return;
+          if (res.available) {
+            if (finished) LOGS.set(logKey, res.text);
+            setText(res.text);
+          } else {
+            setNote({ reason: res.reason, liveUrl: res.liveUrl });
+          }
+        })
+        .catch((e: unknown) => !cancelled && setNote({ reason: e instanceof ApiError ? e.message : 'The log could not be loaded.' }))
+        .finally(() => {
+          if (!cancelled && !finished) timer = window.setTimeout(load, LIVE_MS);
+        });
+    void load();
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [job?.id, finished, runId, job]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logKey, finished, started, local, jobUrl]);
+
+  // Following a live log: stay at the bottom while the reader is there.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && local && !finished && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [text, local, finished]);
 
   const lines = useMemo(() => (text ? parseLog(text) : []), [text]);
   const byStep = useMemo(
@@ -181,7 +214,7 @@ export function LogPane({
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `run-${runId}-${job.name.replace(/\W+/g, '-').toLowerCase()}.log`;
+    a.download = `${local ? `zip-run-${-runId}` : `run-${runId}`}-${job.name.replace(/\W+/g, '-').toLowerCase()}.log`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -191,7 +224,9 @@ export function LogPane({
       <div className="rounded-[var(--radius-card)] bg-log px-5 py-6 text-[13px] text-log-muted">
         {stage.state === 'skipped'
           ? `${stage.label} is not part of this run.`
-          : `${stage.label} has not started; its steps appear here when GitHub starts the job.`}
+          : stage.state === 'cancelled'
+            ? `${stage.label} did not run: the run was cancelled first.`
+            : `${stage.label} has not started; its steps appear here when ${local ? 'this server' : 'GitHub'} starts the job.`}
       </div>
     );
   }
@@ -250,10 +285,12 @@ export function LogPane({
               </button>
             </>
           )}
-          <a href={job.url} target="_blank" rel="noreferrer" className="flex h-9 items-center gap-1.5 rounded-md px-2 text-[13px] text-log-muted hover:text-white">
-            GitHub
-            <ExternalLink size={13} aria-hidden />
-          </a>
+          {job.url && (
+            <a href={job.url} target="_blank" rel="noreferrer" className="flex h-9 items-center gap-1.5 rounded-md px-2 text-[13px] text-log-muted hover:text-white">
+              GitHub
+              <ExternalLink size={13} aria-hidden />
+            </a>
+          )}
         </div>
       </div>
 
@@ -268,7 +305,14 @@ export function LogPane({
         </p>
       )}
 
-      <div className="log-scroll max-h-[min(70svh,720px)] overflow-y-auto">
+      <div
+        ref={scroller}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        }}
+        className="log-scroll max-h-[min(70svh,720px)] overflow-y-auto"
+      >
         {raw && text ? (
           <Lines lines={lines} query={query} />
         ) : (
@@ -298,11 +342,15 @@ export function LogPane({
                     <span className="shrink-0 font-mono text-[12px] text-log-muted tabular">{duration(live)}</span>
                   </button>
                   {isOpen && text && <Lines lines={stepLines} query={query} />}
-                  {isOpen && !text && !note && <p className="px-4 pb-3 font-mono text-[12px] text-log-muted">Loading log…</p>}
+                  {isOpen && !text && !note && (finished || started) && <p className="px-4 pb-3 font-mono text-[12px] text-log-muted">Loading log…</p>}
                 </li>
               );
             })}
-            {steps.length === 0 && <li className="px-4 py-4 text-[13px] text-log-muted">GitHub has not reported this job&apos;s steps yet.</li>}
+            {steps.length === 0 && (
+              <li className="px-4 py-4 text-[13px] text-log-muted">
+                {local ? 'This job has not reported its steps yet.' : 'GitHub has not reported this job\'s steps yet.'}
+              </li>
+            )}
           </ul>
         )}
       </div>

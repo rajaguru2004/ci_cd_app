@@ -1,0 +1,13 @@
+# Build context for apps/builder/Dockerfile (the repository root). The api and web images use
+# their own folders as context and their own .dockerignore.
+**/node_modules
+**/.next
+**/dist
+.git
+.work
+secrets
+.env
+.env.*
+.impeccable
+*.aab
+*.zip

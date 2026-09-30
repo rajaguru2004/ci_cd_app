@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { ExternalLink, OctagonX, RotateCcw, RotateCw, TriangleAlert } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { ago, between, duration, short, since } from '@/lib/format';
+import { ago, between, duration, isLocal, runLabel, short, since } from '@/lib/format';
 import type { RunDetail, RunSummary, StageKey } from '@/lib/types';
 import { usePoll } from '@/lib/usePoll';
 import { LogPane } from './LogPane';
@@ -17,6 +17,7 @@ function triggerText(run: RunSummary): string {
   if (run.trigger === 'console') return who ? `started from the console by ${who}` : 'started from the console';
   if (run.trigger === 'tag') return `started by tag ${run.tag}`;
   if (run.trigger === 'commit') return 'started by a release: commit';
+  if (run.trigger === 'upload') return 'built on this server from an uploaded ZIP';
   return `started by ${run.event}`;
 }
 
@@ -41,6 +42,8 @@ export function RunPanel({
   now: number;
   onChanged: () => void;
 }) {
+  // A run of an uploaded ZIP lives on this server's builder, not on GitHub.
+  const local = isLocal({ id: runId });
   const [active, setActive] = useState(true);
   const poll = usePoll<RunDetail>(() => api<RunDetail>(`/runs/${runId}`), active ? 4000 : 30000, [runId]);
   const detail = poll.data;
@@ -53,13 +56,15 @@ export function RunPanel({
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Open on the stage that matters: the failure, else what is running, else the last one reached.
+  // Open on the stage that matters: the failure, else what is running, else where a cancel
+  // stopped it, else the last one reached.
   const defaultStage = useMemo<StageKey | null>(() => {
     if (!detail) return null;
     const failed = detail.stages.find((s) => s.state === 'failed');
     const running = detail.stages.find((s) => s.state === 'running' || s.state === 'queued');
+    const cancelled = detail.stages.find((s) => s.state === 'cancelled');
     const reached = [...detail.stages].reverse().find((s) => s.state !== 'skipped' && s.state !== 'pending');
-    return (failed ?? running ?? reached ?? detail.stages[0])?.key ?? null;
+    return (failed ?? running ?? cancelled ?? reached ?? detail.stages[0])?.key ?? null;
   }, [detail]);
 
   useEffect(() => {
@@ -74,10 +79,12 @@ export function RunPanel({
     setBusy(label);
     setActionError(null);
     try {
-      await api(`/runs/${runId}/${path}`, { method: 'POST' });
+      const res = await api<{ runId?: number } | undefined>(`/runs/${runId}/${path}`, { method: 'POST' });
+      onChanged();
+      // Re-running an uploaded ZIP starts a new run on the builder: follow it.
+      if (local && res?.runId && res.runId !== runId) return onSelectRun(res.runId);
       setActive(true);
       await poll.refresh();
-      onChanged();
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : `${label} did not go through.`);
     } finally {
@@ -124,8 +131,12 @@ export function RunPanel({
               {detail.commit.subject || run.title}
             </h1>
             <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
-              <span className="font-mono">{short(detail.commit.sha)}</span>
-              {detail.commit.author && (
+              {detail.commit.sha ? (
+                <span className="font-mono">{short(detail.commit.sha)}</span>
+              ) : (
+                <span>commit not recorded in the ZIP</span>
+              )}
+              {detail.commit.author && !local && (
                 <>
                   <span aria-hidden>·</span>
                   <span>{detail.commit.author}</span>
@@ -152,22 +163,36 @@ export function RunPanel({
                 {busy === 'Cancel' ? 'Cancelling…' : 'Cancel run'}
               </button>
             )}
-            {run.state === 'failed' && (
+            {run.state === 'failed' && !local && (
               <button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={() => act('rerun-failed', 'Re-run')}>
                 <RotateCcw size={15} aria-hidden />
                 {busy === 'Re-run' ? 'Starting…' : 'Re-run failed jobs'}
               </button>
             )}
-            {!running && (
+            {!running && !local && (
               <button type="button" className="btn btn-secondary" disabled={Boolean(busy)} onClick={() => act('rerun', 'Re-run all')}>
                 <RotateCw size={15} aria-hidden />
                 {busy === 'Re-run all' ? 'Starting…' : 'Re-run all'}
               </button>
             )}
-            <a className="btn btn-quiet h-10" href={run.url} target="_blank" rel="noreferrer">
-              GitHub
-              <ExternalLink size={14} aria-hidden />
-            </a>
+            {!running && local && (
+              <button
+                type="button"
+                className={run.state === 'failed' ? 'btn btn-primary' : 'btn btn-secondary'}
+                disabled={Boolean(busy)}
+                onClick={() => act('rerun', 'Re-run')}
+                title="Runs the same ZIP with the same settings and a new version code"
+              >
+                <RotateCw size={15} aria-hidden />
+                {busy === 'Re-run' ? 'Starting…' : 'Re-run this ZIP'}
+              </button>
+            )}
+            {run.url && (
+              <a className="btn btn-quiet h-10" href={run.url} target="_blank" rel="noreferrer">
+                GitHub
+                <ExternalLink size={14} aria-hidden />
+              </a>
+            )}
           </div>
         </div>
 
@@ -185,7 +210,8 @@ export function RunPanel({
                   r.id === run.id ? 'border-brand bg-brand-wash text-ink' : 'border-line text-muted hover:text-ink',
                 )}
               >
-                <StateGlyph state={runAsStage(r.state)} size={14} />#{r.number} {runTitle(r)}
+                <StateGlyph state={runAsStage(r.state)} size={14} />
+                {runLabel(r)} {runTitle(r)}
               </button>
             ))}
           </div>
@@ -193,12 +219,12 @@ export function RunPanel({
 
         <div className="mt-5 flex items-center gap-4">
           {/* The rail's ring for this run, at size: the strip below is the same six stages unrolled. */}
-          <StageRing stages={detail.stages} size={44} shippedCore={Boolean(detail.release) && !detail.release?.validatedOnly && !rehearsal} label={`Stages of run ${run.number}`} />
+          <StageRing stages={detail.stages} size={44} shippedCore={Boolean(detail.release) && !detail.release?.validatedOnly && !rehearsal} label={`Stages of ${local ? 'ZIP run' : 'run'} ${run.number}`} />
           <div className="min-w-0">
             <p className={clsx('text-[15px] font-semibold', RUN_INK[run.state])}>{headline}</p>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted">
               <span className="font-medium text-body">
-                #{run.number} {runTitle(run)}
+                {runLabel(run)} {runTitle(run)}
               </span>
               {run.attempt > 1 && <span>· attempt {run.attempt}</span>}
               <span>

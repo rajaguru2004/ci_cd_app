@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import { LogOut, Play } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useHealth } from '@/lib/useHealth';
 
 function Mark() {
   // The favicon's ring: six stages, the last one shipped.
@@ -24,20 +24,10 @@ function Mark() {
   );
 }
 
-/** The repository the console drives, from the public health endpoint. */
-function useRepo(): string | null {
-  const [repo, setRepo] = useState<string | null>(null);
-  useEffect(() => {
-    api<{ repo: string }>('/health')
-      .then((h) => setRepo(h.repo))
-      .catch(() => setRepo(null));
-  }, []);
-  return repo;
-}
 
 export function TopBar({ onStart, setupAttention }: { onStart?: () => void; setupAttention?: boolean }) {
   const path = usePathname();
-  const repo = useRepo();
+  const repo = useHealth()?.repo ?? null;
   const nav = [
     { href: '/', label: 'Pipeline' },
     { href: '/setup', label: 'Setup' },

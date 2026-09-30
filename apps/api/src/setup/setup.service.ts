@@ -7,13 +7,16 @@ import { ARTIFACTS, BuildInfo, PlayStatus, readJson, unzip } from '../pipeline/a
 import { PipelineService } from '../pipeline/pipeline.service';
 import { describeRun, runState, RunState } from '../pipeline/stages';
 import { PlayClient, PlaySnapshot } from '../play/play.client';
+import { BuilderClient } from '../local/builder.client';
+import { LocalRunsService } from '../local/local-runs.service';
+import { VersionCodes } from '../local/version-codes';
 
 export const PLAY_SECRET = 'PLAY_SERVICE_ACCOUNT_JSON';
 
 export type CheckState = 'ok' | 'missing' | 'error' | 'unknown' | 'pending';
 
 export interface SetupCheck {
-  key: 'token' | 'repo' | 'workflow' | 'fastlane' | 'signing' | 'play-console' | 'play-secret' | 'play-access';
+  key: 'token' | 'repo' | 'workflow' | 'fastlane' | 'signing' | 'play-console' | 'play-secret' | 'play-access' | 'builder';
   label: string;
   state: CheckState;
   detail: string;
@@ -48,6 +51,8 @@ export interface SetupResponse {
   signing: { signer: string; certSha256: string; runNumber: number } | null;
   variables: { readable: boolean; defaultTrack: string; versionCodeOffset: number; fromVariables: string[] };
   nextRunNumber: number | null;
+  /** The code the next run the console starts gets (Play's highest + 1, never reused). */
+  nextVersionCode: number | null;
   rate: RateLimit | null;
 }
 
@@ -68,7 +73,10 @@ export class SetupService {
     private readonly gh: GithubClient,
     private readonly pipeline: PipelineService,
     private readonly playClient: PlayClient,
+    private readonly builder: BuilderClient,
     @Inject(CONSOLE_CONFIG) private readonly config: ConsoleConfig,
+    private readonly versions: VersionCodes,
+    private readonly local: LocalRunsService,
   ) {}
 
   async status(): Promise<SetupResponse> {
@@ -83,6 +91,9 @@ export class SetupService {
       signing: null,
       variables: { readable: false, defaultTrack: 'internal', versionCodeOffset: 1000, fromVariables: [] },
       nextRunNumber: null,
+      nextVersionCode: play.snapshot
+        ? this.versions.peek(play.snapshot.highestVersionCode ?? 0, await this.local.knownCodes())
+        : null,
       rate: this.gh.rateLimit,
     };
 
@@ -95,6 +106,7 @@ export class SetupService {
         fix: 'Put GITHUB_TOKEN in ci_cd_app/.env (fine-grained, on the mobile repo: Actions read/write, Contents read, Secrets read/write, Variables read), then run docker compose up -d.',
       });
       empty.checks.push(this.playConsoleCheck(play));
+      empty.checks.push(await this.builderCheck());
       return empty;
     }
 
@@ -102,8 +114,9 @@ export class SetupService {
     try {
       repo = await this.pipeline.repo();
     } catch (e) {
-      empty.checks.push({ key: 'token', label: 'GitHub token', state: 'error', detail: (e as Error).message });
+      empty.checks.push(await this.tokenProblem(e));
       empty.checks.push(this.playConsoleCheck(play));
+      empty.checks.push(await this.builderCheck());
       return empty;
     }
     const out: SetupResponse = {
@@ -223,8 +236,50 @@ export class SetupService {
               },
     );
 
+    out.checks.push(await this.builderCheck());
     out.rate = this.gh.rateLimit;
     return out;
+  }
+
+  /**
+   * Why a working token cannot read the repository. The usual cause is a fine-grained token
+   * owned by the engineer's own account: it only ever sees that account's repositories.
+   */
+  private async tokenProblem(e: unknown): Promise<SetupCheck> {
+    const check: SetupCheck = { key: 'token', label: 'GitHub token', state: 'error', detail: (e as Error).message };
+    if (!(e instanceof GithubError) || e.status !== 404) return check;
+    const repo = this.config.githubRepo;
+    const owner = repo.split('/')[0];
+    const login = await this.gh
+      .get<{ login: string }>('/user')
+      .then((u) => u.login)
+      .catch(() => null);
+    check.detail = `${login ? `The token of @${login}` : 'The token'} works, but GitHub hides ${repo} from it (404).`;
+    check.fix =
+      `A fine-grained token sees only its resource owner's repositories: create it with Resource owner "${owner}" ` +
+      `(an organization owner may have to approve it) and Repository access "${repo.split('/')[1]}", with Actions read/write, ` +
+      `Contents read, Secrets read/write and Variables read. A classic token needs the repo and workflow scopes, ` +
+      `and SSO authorization if ${owner} uses SAML.`;
+    return check;
+  }
+
+  /** The builder that runs the pipeline for uploaded ZIPs; it needs no GitHub token. */
+  private async builderCheck(): Promise<SetupCheck> {
+    const base = { key: 'builder' as const, label: 'Builds from uploaded ZIPs' };
+    if (!this.builder.configured) {
+      return { ...base, state: 'missing', detail: 'Off: BUILDER_URL and BUILDER_TOKEN are not set for the console API.', fix: 'Start the builder service (docker compose up -d builder) with BUILDER_TOKEN in .env.' };
+    }
+    const health = await this.builder.health();
+    if (!health?.ok) {
+      return { ...base, state: 'error', detail: 'The builder is not answering.', fix: 'Check it with: docker compose ps builder' };
+    }
+    return {
+      ...base,
+      state: 'ok',
+      detail: health.busy
+        ? `Ready; building now${health.queued ? `, ${health.queued} queued` : ''}. Flutter 3.47.5, Android SDK and Fastlane on this server.`
+        : 'Ready and idle. Flutter 3.47.5, Android SDK and Fastlane on this server; upload a ZIP from Start build.',
+    };
   }
 
   /** Copies the key mounted on the console into the repository's Actions secret. */

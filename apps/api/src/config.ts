@@ -29,6 +29,13 @@ export interface ConsoleConfig {
   /** Package the console reads on Google Play. */
   androidPackage: string;
   playApiUrl: string;
+  /** The builder that runs the pipeline for uploaded source ZIPs; empty = uploads are off. */
+  builderUrl: string;
+  builderToken: string;
+  /** Volume shared with the builder: uploads/ written here, runs/ read here. */
+  buildsDir: string;
+  /** Largest source ZIP accepted. */
+  maxUploadBytes: number;
 }
 
 const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -69,6 +76,10 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ConsoleConfig 
     playKeyJson: read('PLAY_SERVICE_ACCOUNT_JSON'),
     androidPackage: read('ANDROID_PACKAGE_NAME') || 'com.fusionapps.fusionhrm',
     playApiUrl: (read('PLAY_API_URL') || 'https://androidpublisher.googleapis.com/androidpublisher/v3').replace(/\/+$/, ''),
+    builderUrl: read('BUILDER_URL').replace(/\/+$/, ''),
+    builderToken: read('BUILDER_TOKEN'),
+    buildsDir: read('BUILDS_DIR') || '/data',
+    maxUploadBytes: Number(read('MAX_UPLOAD_MB') || 500) * 1024 * 1024,
   };
 }
 

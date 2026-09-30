@@ -134,6 +134,13 @@ offset="${CODE_OFFSET:-1000}"
 [[ "$offset" =~ ^[0-9]+$ ]] ||
   fail "Repository variable VERSION_CODE_OFFSET must be a whole number; it is '$offset'."
 version_code=$((${RUN_NUMBER:?RUN_NUMBER is required} + offset))
+# The console allocates codes from Google Play (highest + 1) for the runs it starts, here and
+# on its own builder, so the two never hand out the same code.
+if [[ "$event" == "workflow_dispatch" && -n "${IN_VERSION_CODE:-}" ]]; then
+  [[ "$IN_VERSION_CODE" =~ ^[1-9][0-9]*$ ]] ||
+    fail "Version code override '$IN_VERSION_CODE' is not a whole number."
+  version_code="$IN_VERSION_CODE"
+fi
 # Google Play's ceiling for versionCode.
 ((version_code <= 2100000000)) || fail "Version code $version_code is above Google Play's limit."
 

@@ -56,3 +56,8 @@ export function bytes(n: number | null | undefined): string {
 }
 
 export const short = (sha: string) => sha.slice(0, 7);
+
+/** "#12" for a GitHub run, "ZIP #3" for a run of an uploaded ZIP on this server. */
+export const runLabel = (run: { id: number; number: number }) => (run.id < 0 ? `ZIP #${run.number}` : `#${run.number}`);
+
+export const isLocal = (run: { id: number }) => run.id < 0;

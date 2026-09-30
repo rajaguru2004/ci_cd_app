@@ -4,7 +4,7 @@ export type StageKey = 'checkout' | 'dependencies' | 'tests' | 'aab' | 'fastlane
 export type StageState = 'pending' | 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'skipped';
 export type RunState = 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'skipped' | 'waiting';
 export type Mode = 'build' | 'release' | 'validate';
-export type Trigger = 'console' | 'commit' | 'tag' | 'other';
+export type Trigger = 'console' | 'commit' | 'tag' | 'upload' | 'other';
 export type PlayTrack = 'internal' | 'alpha' | 'beta' | 'production';
 
 export interface RateLimit {
@@ -14,6 +14,7 @@ export interface RateLimit {
 }
 
 export interface RunSummary {
+  /** GitHub's run id; negative for a run of an uploaded ZIP on this server's builder. */
   id: number;
   number: number;
   attempt: number;
@@ -198,7 +199,7 @@ export interface SetupResponse {
   repo: { fullName: string; url: string; defaultBranch: string; private: boolean } | null;
   workflowFile: string;
   checks: Array<{
-    key: 'token' | 'repo' | 'workflow' | 'fastlane' | 'signing' | 'play-console' | 'play-secret' | 'play-access';
+    key: 'token' | 'repo' | 'workflow' | 'fastlane' | 'signing' | 'play-console' | 'play-secret' | 'play-access' | 'builder';
     label: string;
     state: CheckState;
     detail: string;
@@ -224,6 +225,8 @@ export interface SetupResponse {
   signing: { signer: string; certSha256: string; runNumber: number } | null;
   variables: { readable: boolean; defaultTrack: string; versionCodeOffset: number; fromVariables: string[] };
   nextRunNumber: number | null;
+  /** The version code the next run the console starts gets (Play's highest + 1, never reused). */
+  nextVersionCode: number | null;
   rate: RateLimit | null;
 }
 

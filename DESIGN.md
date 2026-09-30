@@ -329,7 +329,7 @@ Three nested radii: 8px for controls and callouts, 12px for cards, the log pane,
 ### Buttons
 Compact and confident: 40px tall, 8px corners, 14px semibold.
 - **Shape:** gently curved (8px, `rounded.control`).
-- **Primary:** Deep Ledger Blue fill, white text, 16px horizontal padding, 8px icon gap. One per view: Start build in the top bar, Re-run failed in a failed run's header, the sheet's confirm.
+- **Primary:** Deep Ledger Blue fill, white text, 16px horizontal padding, 8px icon gap. One per view: Start build in the top bar, Re-run failed (or Re-run this ZIP) in a failed run's header, the sheet's confirm.
 - **Hover / Focus / Active:** fill steps to Ink Blue over 160ms ease-out-expo; focus is a 2px brand outline at 2px offset; press scales to 0.98; disabled drops to 55% opacity.
 - **Secondary:** white fill, hairline border, body text; hover to Selection Wash with a 30% brand-tinted border and brand text. Used for Cancel and Re-run all.
 - **Quiet:** 36px (40-44px when icon-only), no fill, muted text, 500 weight; hover to `line-soft` with ink text. Sign-out, refresh, close, back, "open on GitHub".
@@ -349,11 +349,14 @@ Compact and confident: 40px tall, 8px corners, 14px semibold.
 - **Style:** 48px, white, 1px hairline, 8px corners, 12px side padding, ink text at 16px, Console Muted placeholder; textareas start at 112px and resize vertically. The rail's branch select is 44px with a leading branch icon.
 - **Focus:** border turns Deep Ledger Blue with a 3px brand ring at 18%.
 - **Error:** `aria-invalid` turns the border `fail`; the hint below it turns `fail-ink`.
-- **Segmented choice:** a tinted 12px-radius track with 4px padding; options are at least 44px tall, muted at rest, and the chosen one lifts to white with ink text and the selected-segment shadow. Used for mode, track and rollout in the start sheet.
+- **Segmented choice:** a tinted 12px-radius track with 4px padding; options are at least 44px tall, muted at rest, and the chosen one lifts to white with ink text and the selected-segment shadow. Used for source, mode, track and rollout in the start sheet.
+- **ZIP drop zone:** the start sheet's file field when the source is "Upload a source ZIP". At least 96px, 12px corners, a dashed 1px `idle` border on `page`, a 28px archive glyph in muted, "Drop the ZIP here, or choose it" in ink over a 12px muted hint. Hover turns the border brand; dragging a file over it adds Selection Wash. A chosen file turns it solid: hairline border on white, the glyph brand, the file name in ink over its size. While it uploads, a 6px full-round Deep Ledger Blue bar fills a `line-soft` track below it and the confirm button counts the percentage.
 
 ### Navigation
 - **Top bar:** white at 95% with backdrop blur, 64px, hairline bottom. The brand mark (a 32px blue tile holding the six-arc ring) and "FusionHRM Android" (15px bold) over the package and repo in 12px Geist Mono.
 - **Nav items:** 40px, 8px corners, 500 weight; muted at rest, `line-soft` fill with ink when current or hovered. Setup carries an 8px amber dot when setup needs attention.
+- **Builds on this server:** the rail's other face, shown when GitHub cannot be read (no token, or a token that cannot see the repo). A 14px semibold header with a secondary "Upload ZIP" button, a 12px muted note linking to Setup, then one row per run: a 30px stage ring, "ZIP #n" and what the run does at 14px (600 when selected, on Selection Wash), the ZIP's file name in 12px Geist Mono, then the state word in its ink tone, the short SHA and the age. With GitHub connected these runs sit on their commits in the commit stream instead.
+- **Run labels:** "#n" for a GitHub run, "ZIP #n" for a run of an uploaded ZIP on this server, everywhere a run is named (rail, run switcher, header, ring labels).
 
 ### Stage Ring (signature)
 Six arcs, one per stage (checkout, dependencies, tests, signed AAB, Fastlane, Google Play), clockwise from the top, each coloured by its stage state; a core dot sits in the middle.
@@ -369,7 +372,7 @@ The ring unrolled: six columns, each a 6px full-round bar filling left to right 
 Lucide circle glyphs at 16px, stroke 2.2, in the status hue: check (passed), x (failed), dot (running), dashed (queued), minus (skipped), ban (cancelled), plain circle (waiting). They never animate; the ring does that job.
 
 ### Log Pane
-The one dark surface: `log` ground, 12px corners, panel-rest shadow. A `log-raised` toolbar holds job tabs, a 36px filter field, a raw toggle, download and the live-log link. Steps are 44px disclosure rows with durations in mono; a failed step's name is `log-error` and semibold. Lines are 12.5px Geist Mono at 1.6 with muted line numbers; error and warning lines carry their word prefix and a tinted row, command lines and folded group headers use `log-group`. Off-screen chunks skip layout (`content-visibility: auto`).
+The one dark surface: `log` ground, 12px corners, panel-rest shadow. A `log-raised` toolbar holds job tabs, a 36px filter field, a raw toggle, download and the live-log link. Steps are 44px disclosure rows with durations in mono; a failed step's name is `log-error` and semibold. Lines are 12.5px Geist Mono at 1.6 with muted line numbers; error and warning lines carry their word prefix and a tinted row, command lines and folded group headers use `log-group`. Off-screen chunks skip layout (`content-visibility: auto`). A ZIP run's log is live: it is read again every 2.5s while the job runs, and the pane stays pinned to the bottom while the reader is there (scrolling up unpins it). GitHub links appear only for GitHub runs.
 
 ### Sheet
 The one overlay: a native `<dialog>`, a bottom sheet on phones and a centred 576px card from sm, 200ms rise and fade over an ink scrim. Header with an 18px title and muted description over a hairline, scrolling body, `page`-tinted footer for the actions.

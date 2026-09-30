@@ -121,6 +121,8 @@ export class PlayClient {
   private loadedAt = 0;
   private token: { value: string; expiresAt: number } | null = null;
   private cached: { data: PlaySnapshot; at: number } | null = null;
+  private inflight: Promise<PlaySnapshot> | null = null;
+  private editHolder: (() => Promise<string | null>) | null = null;
   /** A snapshot this recent is served from memory: tracks change on a release, not a poll. */
   static cacheMs = 60_000;
   static timeoutMs = 20_000;
@@ -155,18 +157,42 @@ export class PlayClient {
     return state.kind === 'ready' ? JSON.stringify(state.key) : null;
   }
 
+  /**
+   * Google Play keeps one open edit per app; a new edit ends the one before it. The probe names
+   * a pipeline run that may hold an edit now (Fastlane uploading), or returns null.
+   */
+  setEditHolderProbe(probe: () => Promise<string | null>): void {
+    this.editHolder = probe;
+  }
+
   async snapshot(force = false): Promise<PlaySnapshot> {
     const state = this.keyState();
     if (state.kind !== 'ready') throw new PlayError(state.reason, HttpStatus.SERVICE_UNAVAILABLE);
     if (!force && this.cached && Date.now() - this.cached.at < PlayClient.cacheMs) return this.cached.data;
+    // One read at a time, shared by every caller: two open edits would end each other.
+    if (!this.inflight) {
+      this.inflight = this.fresh(state.key).finally(() => {
+        this.inflight = null;
+      });
+    }
+    return this.inflight;
+  }
+
+  private async fresh(key: ServiceAccountKey): Promise<PlaySnapshot> {
+    const holder = this.editHolder ? await this.editHolder().catch(() => null) : null;
+    if (holder) {
+      // Opening an edit now would end the pipeline's edit and fail its upload: show the last read.
+      if (this.cached) return this.cached.data;
+      throw new PlayError(`${holder} The console reads Google Play again once that is done.`, HttpStatus.SERVICE_UNAVAILABLE);
+    }
     try {
-      return await this.read(state.key);
+      return await this.read(key);
     } catch (e) {
       // Reading tracks has no side effects, so a read that failed in transit (a DNS blip right
       // after the container starts, a reset connection) is simply tried once more.
       if (e instanceof PlayError && e.transient) {
         await new Promise((r) => setTimeout(r, 500));
-        return this.read(state.key);
+        return this.read(key);
       }
       throw e;
     }

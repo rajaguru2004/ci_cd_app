@@ -1,0 +1,31 @@
+{
+  "name": "mobile-ci-builder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runs the FusionHRM Android release pipeline on this server for source ZIPs uploaded to the console.",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "yauzl": "^3.2.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.19.0",
+    "@types/yauzl": "^2.10.3",
+    "fflate": "^0.8.2",
+    "jest": "^30.0.0",
+    "ts-jest": "^29.4.0",
+    "typescript": "^5.7.3"
+  },
+  "jest": {
+    "moduleFileExtensions": ["js", "json", "ts"],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": { "^.+\\.ts$": "ts-jest" },
+    "testEnvironment": "node"
+  }
+}

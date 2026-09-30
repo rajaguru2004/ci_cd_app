@@ -167,6 +167,38 @@ describe('PlayClient over HTTP', () => {
     expect(snap.highestVersionCode).toBe(1001);
   });
 
+  it('shares one read between callers that arrive together: two open edits would end each other', async () => {
+    handler = happy;
+    const play = client();
+    const [a, b, c] = await Promise.all([play.snapshot(), play.snapshot(true), play.snapshot()]);
+    expect(a).toBe(b);
+    expect(b).toBe(c);
+    expect(seen.filter((l) => l.startsWith('POST /publisher')).length).toBe(1);
+  });
+
+  it('opens no edit while a pipeline may hold one: the last read is shown instead', async () => {
+    handler = happy;
+    const play = client();
+    let holder: string | null = null;
+    play.setEditHolderProbe(async () => holder);
+    const first = await play.snapshot();
+    holder = 'ZIP run #7 is uploading to Google Play.';
+    const edits = seen.filter((l) => l.startsWith('POST /publisher')).length;
+    expect(await play.snapshot(true)).toBe(first);
+    expect(seen.filter((l) => l.startsWith('POST /publisher')).length).toBe(edits);
+    holder = null;
+    await play.snapshot(true);
+    expect(seen.filter((l) => l.startsWith('POST /publisher')).length).toBe(edits + 1);
+  });
+
+  it('says why there is nothing to show when a pipeline holds the edit before the first read', async () => {
+    handler = happy;
+    const play = client();
+    play.setEditHolderProbe(async () => 'GitHub run #12 is working on Google Play.');
+    await expect(play.snapshot()).rejects.toThrow('GitHub run #12 is working on Google Play. The console reads Google Play again once that is done.');
+    expect(seen.filter((l) => l.startsWith('POST /publisher'))).toEqual([]);
+  });
+
   it('says the key itself was refused when Google will not sign it in', async () => {
     handler = (_req, res) => json(res, 400, { error: 'invalid_grant', error_description: 'Invalid JWT Signature.' });
     await expect(client().snapshot()).rejects.toThrow('Invalid JWT Signature.');

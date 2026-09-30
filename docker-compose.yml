@@ -1,11 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # FusionHRM mobile pipeline console
 #
-#   web  Next.js UI on ${CONSOLE_PORT:-7080}; proxies /api/* to the api service
-#   api  NestJS; talks to GitHub Actions (GITHUB_TOKEN) and Google Play (the key
-#        mounted below as a read-only secret)
+#   web      Next.js UI on ${CONSOLE_PORT:-7080}; proxies /api/* to the api service
+#   api      NestJS; talks to GitHub Actions (GITHUB_TOKEN) and Google Play (the key
+#            mounted below as a read-only secret); takes source ZIP uploads
+#   builder  runs the release pipeline on this server for uploaded source ZIPs
+#            (Flutter, Android SDK, Fastlane); reachable only by the api
 #
-# No database: every build state is read from GitHub for that run.
+# GitHub runs keep no state here: they are read from GitHub. Runs of uploaded ZIPs
+# live in the `builds` volume (records, logs, the AAB), shared by api and builder.
 #
 #   ./scripts/deploy.sh up        build and start on this machine
 #   ./scripts/deploy.sh push      build and push images for a server
@@ -25,10 +28,17 @@ services:
     environment:
       PORT: "3001"
       PLAY_SERVICE_ACCOUNT_FILE: /run/secrets/play-service-account.json
+      BUILDER_URL: http://builder:4000
+      BUILDS_DIR: /data
     secrets:
       # Mounted read-only at /run/secrets/<target>.
       - source: play-service-account
         target: play-service-account.json
+    volumes:
+      - builds:/data
+    depends_on:
+      builder:
+        condition: service_healthy
     # Only the web container talks to the API; it is not published on the host.
     expose:
       - "3001"
@@ -69,11 +79,63 @@ services:
     networks:
       - mobile_ci
 
+  builder:
+    build:
+      # The repository root: the image bakes in mobile-pipeline/ (Fastlane lanes).
+      context: .
+      dockerfile: apps/builder/Dockerfile
+      target: builder
+    image: ${IMAGE_PREFIX:-rajaguru2004/fusionhrm-mobile-ci}-builder:${IMAGE_TAG:-latest}
+    container_name: mobile_ci_builder
+    restart: unless-stopped
+    # tini as PID 1: reaps the processes builds leave behind (dart, Gradle, Kotlin).
+    init: true
+    # Deliberately not the console's .env: the builder never sees the GitHub token.
+    environment:
+      BUILDER_TOKEN: ${BUILDER_TOKEN:?BUILDER_TOKEN must be set in .env}
+      PLAY_SERVICE_ACCOUNT_FILE: /run/secrets/play-service-account.json
+      GRADLE_HEAP: ${BUILDER_GRADLE_HEAP:-4g}
+      KEEP_RUNS: ${BUILDER_KEEP_RUNS:-30}
+    secrets:
+      - source: play-service-account
+        target: play-service-account.json
+    volumes:
+      - builds:/data
+      # Caches that make the second build minutes faster than the first.
+      - pub-cache:/cache/pub
+      - gradle-cache:/cache/gradle
+      # Starts as the image's SDK; Gradle adds what a project needs (NDK, platforms).
+      - android-sdk:/opt/android-sdk
+    cpus: ${BUILDER_CPUS:-6}
+    mem_limit: ${BUILDER_MEMORY:-8g}
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "4000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    networks:
+      - mobile_ci
+
 secrets:
   # Google Play service-account JSON. Keep it out of git (secrets/ is ignored) and
-  # readable by uid 1000, the `node` user inside the container.
+  # readable by uid 1000, the `node` user of the api container. In the builder only
+  # root (the runner) reads it, and only for the Fastlane upload step.
   play-service-account:
     file: ${PLAY_KEY_FILE:-./secrets/play-service-account.json}
+
+volumes:
+  builds: {}
+  pub-cache: {}
+  gradle-cache: {}
+  android-sdk: {}
 
 networks:
   mobile_ci: {}

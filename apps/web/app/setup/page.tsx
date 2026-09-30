@@ -182,18 +182,25 @@ export default function SetupPage() {
             <section aria-labelledby="triggers" className="panel overflow-hidden">
               <div className="border-b border-line px-5 py-4">
                 <h2 id="triggers" className="text-[16px] font-bold text-ink">
-                  Three ways a run starts
+                  Four ways a run starts
                 </h2>
                 <p className="mt-1 max-w-[75ch] text-[13px] text-body">
-                  All three run the same {data?.workflowFile ?? 'release.yml'}: checkout, dependencies, tests, signed AAB, then Fastlane to Google
-                  Play for releases.
+                  All four run the same pipeline as {data?.workflowFile ?? 'release.yml'}: checkout, dependencies, tests, signed AAB, then Fastlane
+                  to Google Play for releases.
                 </p>
               </div>
               <ol className="divide-y divide-line">
                 <li className="px-5 py-4">
-                  <h3 className="font-semibold text-ink">From this console</h3>
+                  <h3 className="font-semibold text-ink">From this console, on GitHub Actions</h3>
                   <p className="mt-1 text-[13px] text-body">
                     Start build on any branch that has the pipeline: build and test, a release to a track, or a Play access check.
+                  </p>
+                </li>
+                <li className="px-5 py-4">
+                  <h3 className="font-semibold text-ink">From this console, with a source ZIP</h3>
+                  <p className="mt-1 text-[13px] text-body">
+                    On GitHub: Code → Download ZIP. Then Start build → Upload a source ZIP: this server unpacks it and runs the same stages. No
+                    GitHub token needed.
                   </p>
                 </li>
                 <li className="px-5 py-4">
@@ -261,8 +268,9 @@ export default function SetupPage() {
                   Version codes
                 </h2>
                 <p className="mt-2 text-[13px] text-body">
-                  Every run gets <span className="font-mono">run number + {data?.variables.versionCodeOffset ?? 1000}</span>, so codes only
-                  grow and two runs never collide. Fastlane refuses before uploading if Google Play is already ahead.
+                  Runs the console starts, on GitHub or on this server, get Google Play&apos;s highest code + 1 and never one handed out
+                  before. A release commit or a v-tag gets <span className="font-mono">run number + {data?.variables.versionCodeOffset ?? 1000}</span>.
+                  Fastlane refuses before uploading if Google Play is already ahead.
                 </p>
               </div>
               <dl className="divide-y divide-line border-t border-line text-[13px]">
@@ -271,7 +279,15 @@ export default function SetupPage() {
                   <dd className="font-mono font-semibold text-ink tabular">{data?.play.snapshot?.highestVersionCode ?? '—'}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-4 px-5 py-2.5">
-                  <dt className="text-muted">Next run builds</dt>
+                  <dt className="text-muted">Next console run builds</dt>
+                  {data?.nextVersionCode ? (
+                    <dd className="font-mono font-semibold text-ink tabular">{data.nextVersionCode}</dd>
+                  ) : (
+                    <dd className="text-muted">once Google Play is readable</dd>
+                  )}
+                </div>
+                <div className="flex items-baseline justify-between gap-4 px-5 py-2.5">
+                  <dt className="text-muted">Next release commit or tag builds</dt>
                   {data?.nextRunNumber ? (
                     <dd className="font-mono font-semibold text-ink tabular">{data.nextRunNumber + data.variables.versionCodeOffset}</dd>
                   ) : (

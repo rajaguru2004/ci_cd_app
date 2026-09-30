@@ -1,12 +1,14 @@
 # Mobile CI/CD POC — task tracker
 
-Status: **Built, deployed on this machine, verified against Google Play. The live GitHub
-Actions run waits on two steps only you can take (§4).** Opened 2026-09-29 19:33 IST;
-resumed 2026-09-30 12:07; last update 2026-09-30 12:53.
+Status: **Built, deployed on this machine, verified end to end on this server: a source ZIP
+uploaded in the console ran tests, built and signed the AAB, and passed Google Play's
+validation (rehearsal, nothing published).** The same run on GitHub Actions waits on your
+steps in §4. Opened 2026-09-29 19:33 IST; resumed 2026-09-30 12:07; last update 2026-09-30
+18:35.
 
-Progress: 6 of 7 phases done · 55 of 58 tasks done. Remaining work after your two steps:
-about 40 minutes (a Play-access check, a build, a rehearsal and a real internal release on
-GitHub Actions, then capturing the run screens for the design record).
+Progress: 7 of 8 phases done (Phase 5's GitHub half waits on §4). Remaining after your
+steps: about 40 minutes (a Play-access check, a build, a rehearsal and a real internal
+release on GitHub Actions).
 
 Nothing is deleted from this file: a finished task flips to `[x]`, a changed plan is struck
 through with the reason.
@@ -48,6 +50,41 @@ solid working stable output which will be deployed on one of the servers."
 | 4 | Docker deploy on this machine | 25 min | done | 09-30 12:36 |
 | 5 | Live end-to-end run on GitHub + Google Play | 40 min | Google Play half done; GitHub half waits on §4 | |
 | 6 | Design finish: review, fixes, DESIGN.md | 35 min | done (run screens to capture on the first real run) | 09-30 12:52 |
+| 7 | Upload a source ZIP → the console runs the pipeline itself | 4 h | done, verified end to end | 09-30 18:31 |
+
+### Phase 7 — Source ZIP upload, pipeline run on this server (requested 09-30 17:15)
+
+> "there will be option in git to download the source code as the zip, so that i will download
+> and i will upload in our platform, so our platform will extract the code and run the pipeline"
+
+Flow: GitHub → Code → Download ZIP → console → Start build → Source: Upload ZIP → the console
+extracts it and runs the same stages as `release.yml` on this server (dependencies, analysis
+and tests, signed AAB, Fastlane → Google Play), shown in the same run view. Needs no GitHub
+token. The commit SHA GitHub writes into the ZIP ties the run to its commit on the rail.
+
+| Task | Estimate | Status |
+|---|---|---|
+| Builder service: safe ZIP extraction, the pipeline's jobs and steps, live logs in GitHub's format, queue, cancel, re-run; build steps run unprivileged, only Fastlane sees the Play key | 70 min | done · 31 tests |
+| Builder image: JDK 17, Android SDK, Flutter 3.47.5, Ruby + Fastlane, Node | 15 min + build | done · 8 GB; Kotlin compiles inside Gradle's capped heap; tini reaps leftovers |
+| API: upload endpoint, builder client, local runs in the run view and the commit stream, version codes from Google Play | 45 min | done |
+| UI: source choice and upload with progress in the start sheet, builds on this server without GitHub, live logs | 45 min | done |
+| Compose, deploy script, README | 20 min | done |
+| Real run: a ZIP of `main` → tests → signed AAB → rehearsal to Google Play | 40 min | done: `main` itself fails its own tests today (§4); `main` + the two fixes passed every stage (ZIP run #4: 323 tests, AAB 1.0.1 (1004) signed with the upload key, Google Play validation passed) |
+| Run screens captured with real data; design check | 25 min | done: upload sheet, live build, failed tests, finished run with AAB, Setup; DESIGN.md records the new parts |
+
+Found on the way (all fixed, with tests):
+
+- The web container's `/api/*` rewrite buffers request bodies and cuts them at 10 MB, so a
+  34 MB GitHub ZIP never reached the API. Uploads now stream through their own route.
+- The rail fell back to "builds on this server" only without a token; a token that cannot see
+  the repo (404) left an empty page. Any unreadable GitHub now shows the ZIP builds.
+- Setup names the token's account and the fix when GitHub hides the repo (404).
+- **Google Play keeps one open edit per app; a new edit ends the one before it.** Two console
+  reads at once failed each other ("This Edit has been deleted"), and a console read during a
+  Fastlane upload would have failed the release. Reads are now one at a time, and none is
+  opened while a run's Google Play job holds an edit (the last read is shown instead).
+- Setup's version-code card still described run number + 1000 for every run; it now shows the
+  next code a console run gets (Play's highest + 1).
 
 ### Phase 0 — Discovery and decisions (done)
 
@@ -128,6 +165,8 @@ solid working stable output which will be deployed on one of the servers."
 
 - [x] Google Play key verified live (tracks read; production "Second Release", code 9).
 - [x] Upload key and release path verified against Google Play (validate-only, above).
+- [x] The whole pipeline on this server from an uploaded ZIP (Phase 7): tests, signed AAB,
+      Google Play validation.
 - [ ] **You:** push `ci/release-pipeline` to the mobile repo's `main` (§4).
 - [ ] **You:** `GITHUB_TOKEN` in `ci_cd_app/.env`, then `./scripts/deploy.sh up` (§4).
 - [ ] Setup → copy the console key into the GitHub secret; Setup all green.
@@ -144,9 +183,19 @@ solid working stable output which will be deployed on one of the servers."
       verdict: **ship** — scoped to the fixes; run surfaces reviewed from source.
 - [x] DESIGN.md + `.impeccable/design.json` written from the shipped build by the documenter.
 - [x] Provenance scan: the UI ships no raster images (SVG only).
-- [ ] Capture the run surfaces on the first real run (they need GitHub data).
+- [x] Run surfaces captured on real ZIP runs (upload sheet, live build, failed tests, Setup).
+- [ ] Capture a finished run with its AAB and Play rehearsal (on the real run).
 
 ## 4. What only you can do
+
+0. **The GitHub token in `.env` belongs to @rajaguru2004 and cannot see the org repo** (GitHub
+   answers 404). Make a fine-grained token with Resource owner `the-reciprocal-solutions` (an
+   org owner may have to approve it), repository `human-resource-management-mobile-ess`, and
+   the permissions below. ZIP builds work without it.
+0. **Mobile `main` fails its own gates today**: 32 smoke tests (a 0.25 px overflow in the
+   dashboard's week row on dates like "Wed 30") and the widget-key ratchet (26 < baseline 27).
+   Both fixes are on the local branch `fix/main-test-gates` of the mobile clone (`0b0af6e`,
+   `a2d8a3f`), verified on this server; push or cherry-pick them.
 
 1. **Push the pipeline** (the permission guard stopped me pushing to the org repo's `main`):
    `git -C ~/StudioProjects/CRM/human-resource-management/human-resource-management-mobile-ess push origin ci/release-pipeline:main`
@@ -168,3 +217,9 @@ solid working stable output which will be deployed on one of the servers."
   with read access to that repo can sign builds as you; moving it to secrets is a follow-up.
 - HRM `POST /mobile-release` still points at Bitrise; repointing or removing it is a follow-up.
 - The Play service-account key passed through a chat session: rotate it once live (README).
+- Google Play keeps one open edit per app. The console never opens one while a run's Google
+  Play job is running, but a GitHub release and a ZIP release uploading at the same moment
+  would still end each other's edit: release from one place at a time.
+- ZIP runs run one at a time on this server; the first build on a new server downloads the
+  Gradle distribution, the NDK (about 1 GB) and the Maven dependencies (tens of minutes). Later
+  builds use the caches.
