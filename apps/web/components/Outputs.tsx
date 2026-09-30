@@ -76,9 +76,6 @@ export function Outputs({ detail }: { detail: RunDetail }) {
                 <Fact term="SHA-256">
                   <CopyValue value={detail.build.sha256} shown={`${detail.build.sha256.slice(0, 12)}…`} />
                 </Fact>
-                <Fact term="Signed by">
-                  <span title={detail.build.signer}>{detail.build.signer.split(',')[0]?.replace(/^CN=/, '') || detail.build.signer}</span>
-                </Fact>
                 <Fact term="Key SHA-256">
                   <CopyValue value={detail.build.certSha256} shown={`${detail.build.certSha256.slice(0, 14)}…`} />
                 </Fact>
