@@ -1,0 +1,843 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-30T07:14:58+00:00",
+  "title": "Design System: FusionHRM Android Pipeline",
+  "extensions": {
+    "colorMeta": {
+      "page": {
+        "role": "neutral",
+        "displayName": "Tinted Paper",
+        "canonical": "#f4f6fc",
+        "tonalRamp": [
+          "oklch(15% 0.008 271)",
+          "oklch(26% 0.008 271)",
+          "oklch(38% 0.008 271)",
+          "oklch(49% 0.008 271)",
+          "oklch(61% 0.008 271)",
+          "oklch(72% 0.008 271)",
+          "oklch(84% 0.008 271)",
+          "oklch(95% 0.008 271)"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "White Card",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline Slate",
+        "canonical": "#e2e8f0",
+        "tonalRamp": [
+          "oklch(15% 0.013 256)",
+          "oklch(26% 0.013 256)",
+          "oklch(38% 0.013 256)",
+          "oklch(49% 0.013 256)",
+          "oklch(61% 0.013 256)",
+          "oklch(72% 0.013 256)",
+          "oklch(84% 0.013 256)",
+          "oklch(95% 0.013 256)"
+        ]
+      },
+      "line-soft": {
+        "role": "neutral",
+        "displayName": "Soft Hairline",
+        "canonical": "#f1f5f9",
+        "tonalRamp": [
+          "oklch(15% 0.007 248)",
+          "oklch(26% 0.007 248)",
+          "oklch(38% 0.007 248)",
+          "oklch(49% 0.007 248)",
+          "oklch(61% 0.007 248)",
+          "oklch(72% 0.007 248)",
+          "oklch(84% 0.007 248)",
+          "oklch(95% 0.007 248)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#0f172a",
+        "tonalRamp": [
+          "oklch(15% 0.024 266)",
+          "oklch(26% 0.028 266)",
+          "oklch(38% 0.032 266)",
+          "oklch(49% 0.036 266)",
+          "oklch(61% 0.040 266)",
+          "oklch(72% 0.035 266)",
+          "oklch(84% 0.031 266)",
+          "oklch(95% 0.027 266)"
+        ]
+      },
+      "body": {
+        "role": "neutral",
+        "displayName": "Slate Body",
+        "canonical": "#334155",
+        "tonalRamp": [
+          "oklch(15% 0.023 257)",
+          "oklch(26% 0.027 257)",
+          "oklch(38% 0.031 257)",
+          "oklch(49% 0.035 257)",
+          "oklch(61% 0.039 257)",
+          "oklch(72% 0.035 257)",
+          "oklch(84% 0.031 257)",
+          "oklch(95% 0.027 257)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Console Muted",
+        "canonical": "#5b6679",
+        "tonalRamp": [
+          "oklch(15% 0.020 261)",
+          "oklch(26% 0.023 261)",
+          "oklch(38% 0.027 261)",
+          "oklch(49% 0.030 261)",
+          "oklch(61% 0.033 261)",
+          "oklch(72% 0.030 261)",
+          "oklch(84% 0.026 261)",
+          "oklch(95% 0.023 261)"
+        ]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Faint Slate",
+        "canonical": "#94a3b8",
+        "tonalRamp": [
+          "oklch(15% 0.021 257)",
+          "oklch(26% 0.025 257)",
+          "oklch(38% 0.028 257)",
+          "oklch(49% 0.032 257)",
+          "oklch(61% 0.035 257)",
+          "oklch(72% 0.031 257)",
+          "oklch(84% 0.028 257)",
+          "oklch(95% 0.024 257)"
+        ]
+      },
+      "brand": {
+        "role": "primary",
+        "displayName": "Deep Ledger Blue",
+        "canonical": "#00358f",
+        "tonalRamp": [
+          "oklch(15% 0.094 261)",
+          "oklch(26% 0.110 261)",
+          "oklch(38% 0.126 261)",
+          "oklch(49% 0.142 261)",
+          "oklch(61% 0.156 261)",
+          "oklch(72% 0.140 261)",
+          "oklch(84% 0.124 261)",
+          "oklch(95% 0.108 261)"
+        ]
+      },
+      "brand-dark": {
+        "role": "primary",
+        "displayName": "Ink Blue",
+        "canonical": "#002570",
+        "tonalRamp": [
+          "oklch(15% 0.081 262)",
+          "oklch(26% 0.095 262)",
+          "oklch(38% 0.109 262)",
+          "oklch(49% 0.123 262)",
+          "oklch(61% 0.135 262)",
+          "oklch(72% 0.121 262)",
+          "oklch(84% 0.107 262)",
+          "oklch(95% 0.093 262)"
+        ]
+      },
+      "brand-wash": {
+        "role": "primary",
+        "displayName": "Selection Wash",
+        "canonical": "#eef3fc",
+        "tonalRamp": [
+          "oklch(15% 0.013 262)",
+          "oklch(26% 0.013 262)",
+          "oklch(38% 0.013 262)",
+          "oklch(49% 0.013 262)",
+          "oklch(61% 0.013 262)",
+          "oklch(72% 0.013 262)",
+          "oklch(84% 0.013 262)",
+          "oklch(95% 0.013 262)"
+        ]
+      },
+      "brand-light": {
+        "role": "primary",
+        "displayName": "Pale Sky",
+        "canonical": "#aeccff",
+        "tonalRamp": [
+          "oklch(15% 0.047 261)",
+          "oklch(26% 0.055 261)",
+          "oklch(38% 0.063 261)",
+          "oklch(49% 0.071 261)",
+          "oklch(61% 0.078 261)",
+          "oklch(72% 0.070 261)",
+          "oklch(84% 0.062 261)",
+          "oklch(95% 0.054 261)"
+        ]
+      },
+      "ship": {
+        "role": "secondary",
+        "displayName": "Signal Orange",
+        "canonical": "#f66600",
+        "tonalRamp": [
+          "oklch(15% 0.116 45)",
+          "oklch(26% 0.137 45)",
+          "oklch(38% 0.157 45)",
+          "oklch(49% 0.177 45)",
+          "oklch(61% 0.195 45)",
+          "oklch(72% 0.174 45)",
+          "oklch(84% 0.154 45)",
+          "oklch(95% 0.134 45)"
+        ]
+      },
+      "ship-ink": {
+        "role": "secondary",
+        "displayName": "Ship Ink",
+        "canonical": "#b34700",
+        "tonalRamp": [
+          "oklch(15% 0.092 44)",
+          "oklch(26% 0.108 44)",
+          "oklch(38% 0.124 44)",
+          "oklch(49% 0.140 44)",
+          "oklch(61% 0.154 44)",
+          "oklch(72% 0.138 44)",
+          "oklch(84% 0.122 44)",
+          "oklch(95% 0.106 44)"
+        ]
+      },
+      "ship-wash": {
+        "role": "secondary",
+        "displayName": "Ship Wash",
+        "canonical": "#fff1e5",
+        "tonalRamp": [
+          "oklch(15% 0.013 63)",
+          "oklch(26% 0.015 63)",
+          "oklch(38% 0.018 63)",
+          "oklch(49% 0.020 63)",
+          "oklch(61% 0.022 63)",
+          "oklch(72% 0.020 63)",
+          "oklch(84% 0.017 63)",
+          "oklch(95% 0.015 63)"
+        ]
+      },
+      "ok": {
+        "role": "tertiary",
+        "displayName": "Pass Green",
+        "canonical": "#10b981",
+        "tonalRamp": [
+          "oklch(15% 0.089 162)",
+          "oklch(26% 0.104 162)",
+          "oklch(38% 0.119 162)",
+          "oklch(49% 0.135 162)",
+          "oklch(61% 0.148 162)",
+          "oklch(72% 0.133 162)",
+          "oklch(84% 0.117 162)",
+          "oklch(95% 0.102 162)"
+        ]
+      },
+      "ok-ink": {
+        "role": "tertiary",
+        "displayName": "Pass Ink",
+        "canonical": "#047857",
+        "tonalRamp": [
+          "oklch(15% 0.062 166)",
+          "oklch(26% 0.073 166)",
+          "oklch(38% 0.084 166)",
+          "oklch(49% 0.095 166)",
+          "oklch(61% 0.104 166)",
+          "oklch(72% 0.093 166)",
+          "oklch(84% 0.083 166)",
+          "oklch(95% 0.072 166)"
+        ]
+      },
+      "ok-wash": {
+        "role": "tertiary",
+        "displayName": "Pass Wash",
+        "canonical": "#ecfdf5",
+        "tonalRamp": [
+          "oklch(15% 0.012 166)",
+          "oklch(26% 0.014 166)",
+          "oklch(38% 0.017 166)",
+          "oklch(49% 0.019 166)",
+          "oklch(61% 0.021 166)",
+          "oklch(72% 0.018 166)",
+          "oklch(84% 0.016 166)",
+          "oklch(95% 0.014 166)"
+        ]
+      },
+      "fail": {
+        "role": "tertiary",
+        "displayName": "Fail Red",
+        "canonical": "#ef4444",
+        "tonalRamp": [
+          "oklch(15% 0.124 25)",
+          "oklch(26% 0.145 25)",
+          "oklch(38% 0.166 25)",
+          "oklch(49% 0.188 25)",
+          "oklch(61% 0.207 25)",
+          "oklch(72% 0.185 25)",
+          "oklch(84% 0.164 25)",
+          "oklch(95% 0.142 25)"
+        ]
+      },
+      "fail-ink": {
+        "role": "tertiary",
+        "displayName": "Fail Ink",
+        "canonical": "#b91c1c",
+        "tonalRamp": [
+          "oklch(15% 0.113 28)",
+          "oklch(26% 0.133 28)",
+          "oklch(38% 0.153 28)",
+          "oklch(49% 0.172 28)",
+          "oklch(61% 0.189 28)",
+          "oklch(72% 0.170 28)",
+          "oklch(84% 0.150 28)",
+          "oklch(95% 0.130 28)"
+        ]
+      },
+      "fail-wash": {
+        "role": "tertiary",
+        "displayName": "Fail Wash",
+        "canonical": "#fef2f2",
+        "tonalRamp": [
+          "oklch(15% 0.013 17)",
+          "oklch(26% 0.013 17)",
+          "oklch(38% 0.013 17)",
+          "oklch(49% 0.013 17)",
+          "oklch(61% 0.013 17)",
+          "oklch(72% 0.013 17)",
+          "oklch(84% 0.013 17)",
+          "oklch(95% 0.013 17)"
+        ]
+      },
+      "run": {
+        "role": "tertiary",
+        "displayName": "Run Blue",
+        "canonical": "#3b82f6",
+        "tonalRamp": [
+          "oklch(15% 0.112 260)",
+          "oklch(26% 0.131 260)",
+          "oklch(38% 0.151 260)",
+          "oklch(49% 0.170 260)",
+          "oklch(61% 0.187 260)",
+          "oklch(72% 0.167 260)",
+          "oklch(84% 0.148 260)",
+          "oklch(95% 0.129 260)"
+        ]
+      },
+      "run-ink": {
+        "role": "tertiary",
+        "displayName": "Run Ink",
+        "canonical": "#1d4ed8",
+        "tonalRamp": [
+          "oklch(15% 0.129 264)",
+          "oklch(26% 0.152 264)",
+          "oklch(38% 0.174 264)",
+          "oklch(49% 0.196 264)",
+          "oklch(61% 0.216 264)",
+          "oklch(72% 0.193 264)",
+          "oklch(84% 0.171 264)",
+          "oklch(95% 0.149 264)"
+        ]
+      },
+      "run-wash": {
+        "role": "tertiary",
+        "displayName": "Run Wash",
+        "canonical": "#eff6ff",
+        "tonalRamp": [
+          "oklch(15% 0.014 255)",
+          "oklch(26% 0.014 255)",
+          "oklch(38% 0.014 255)",
+          "oklch(49% 0.014 255)",
+          "oklch(61% 0.014 255)",
+          "oklch(72% 0.014 255)",
+          "oklch(84% 0.014 255)",
+          "oklch(95% 0.014 255)"
+        ]
+      },
+      "run-queued": {
+        "role": "tertiary",
+        "displayName": "Queued Sky",
+        "canonical": "#93c5fd",
+        "tonalRamp": [
+          "oklch(15% 0.057 252)",
+          "oklch(26% 0.067 252)",
+          "oklch(38% 0.077 252)",
+          "oklch(49% 0.086 252)",
+          "oklch(61% 0.095 252)",
+          "oklch(72% 0.085 252)",
+          "oklch(84% 0.075 252)",
+          "oklch(95% 0.065 252)"
+        ]
+      },
+      "warn": {
+        "role": "tertiary",
+        "displayName": "Attention Amber",
+        "canonical": "#f59e0b",
+        "tonalRamp": [
+          "oklch(15% 0.098 70)",
+          "oklch(26% 0.115 70)",
+          "oklch(38% 0.132 70)",
+          "oklch(49% 0.149 70)",
+          "oklch(61% 0.164 70)",
+          "oklch(72% 0.147 70)",
+          "oklch(84% 0.130 70)",
+          "oklch(95% 0.113 70)"
+        ]
+      },
+      "warn-ink": {
+        "role": "tertiary",
+        "displayName": "Attention Ink",
+        "canonical": "#b45309",
+        "tonalRamp": [
+          "oklch(15% 0.087 49)",
+          "oklch(26% 0.102 49)",
+          "oklch(38% 0.117 49)",
+          "oklch(49% 0.131 49)",
+          "oklch(61% 0.145 49)",
+          "oklch(72% 0.130 49)",
+          "oklch(84% 0.115 49)",
+          "oklch(95% 0.100 49)"
+        ]
+      },
+      "warn-wash": {
+        "role": "tertiary",
+        "displayName": "Attention Wash",
+        "canonical": "#fffbeb",
+        "tonalRamp": [
+          "oklch(15% 0.013 95)",
+          "oklch(26% 0.015 95)",
+          "oklch(38% 0.017 95)",
+          "oklch(49% 0.019 95)",
+          "oklch(61% 0.021 95)",
+          "oklch(72% 0.019 95)",
+          "oklch(84% 0.017 95)",
+          "oklch(95% 0.015 95)"
+        ]
+      },
+      "idle": {
+        "role": "tertiary",
+        "displayName": "Idle Slate",
+        "canonical": "#cbd5e1",
+        "tonalRamp": [
+          "oklch(15% 0.020 253)",
+          "oklch(26% 0.020 253)",
+          "oklch(38% 0.020 253)",
+          "oklch(49% 0.020 253)",
+          "oklch(61% 0.020 253)",
+          "oklch(72% 0.020 253)",
+          "oklch(84% 0.020 253)",
+          "oklch(95% 0.020 253)"
+        ]
+      },
+      "log": {
+        "role": "neutral",
+        "displayName": "Log Night",
+        "canonical": "#0b1220",
+        "tonalRamp": [
+          "oklch(15% 0.018 263)",
+          "oklch(26% 0.022 263)",
+          "oklch(38% 0.025 263)",
+          "oklch(49% 0.028 263)",
+          "oklch(61% 0.031 263)",
+          "oklch(72% 0.028 263)",
+          "oklch(84% 0.024 263)",
+          "oklch(95% 0.021 263)"
+        ]
+      },
+      "log-raised": {
+        "role": "neutral",
+        "displayName": "Log Toolbar",
+        "canonical": "#111a2e",
+        "tonalRamp": [
+          "oklch(15% 0.025 265)",
+          "oklch(26% 0.029 265)",
+          "oklch(38% 0.033 265)",
+          "oklch(49% 0.038 265)",
+          "oklch(61% 0.041 265)",
+          "oklch(72% 0.037 265)",
+          "oklch(84% 0.033 265)",
+          "oklch(95% 0.028 265)"
+        ]
+      },
+      "log-line": {
+        "role": "neutral",
+        "displayName": "Log Divider",
+        "canonical": "#1e293b",
+        "tonalRamp": [
+          "oklch(15% 0.022 260)",
+          "oklch(26% 0.026 260)",
+          "oklch(38% 0.030 260)",
+          "oklch(49% 0.033 260)",
+          "oklch(61% 0.037 260)",
+          "oklch(72% 0.033 260)",
+          "oklch(84% 0.029 260)",
+          "oklch(95% 0.025 260)"
+        ]
+      },
+      "log-text": {
+        "role": "neutral",
+        "displayName": "Log Text",
+        "canonical": "#d6deeb",
+        "tonalRamp": [
+          "oklch(15% 0.020 260)",
+          "oklch(26% 0.020 260)",
+          "oklch(38% 0.020 260)",
+          "oklch(49% 0.020 260)",
+          "oklch(61% 0.020 260)",
+          "oklch(72% 0.020 260)",
+          "oklch(84% 0.020 260)",
+          "oklch(95% 0.020 260)"
+        ]
+      },
+      "log-muted": {
+        "role": "neutral",
+        "displayName": "Log Muted",
+        "canonical": "#8391a8",
+        "tonalRamp": [
+          "oklch(15% 0.023 260)",
+          "oklch(26% 0.027 260)",
+          "oklch(38% 0.030 260)",
+          "oklch(49% 0.034 260)",
+          "oklch(61% 0.038 260)",
+          "oklch(72% 0.034 260)",
+          "oklch(84% 0.030 260)",
+          "oklch(95% 0.026 260)"
+        ]
+      },
+      "log-error": {
+        "role": "neutral",
+        "displayName": "Log Error",
+        "canonical": "#fca5a5",
+        "tonalRamp": [
+          "oklch(15% 0.062 20)",
+          "oklch(26% 0.072 20)",
+          "oklch(38% 0.083 20)",
+          "oklch(49% 0.094 20)",
+          "oklch(61% 0.103 20)",
+          "oklch(72% 0.092 20)",
+          "oklch(84% 0.082 20)",
+          "oklch(95% 0.071 20)"
+        ]
+      },
+      "log-warn": {
+        "role": "neutral",
+        "displayName": "Log Warning",
+        "canonical": "#fcd34d",
+        "tonalRamp": [
+          "oklch(15% 0.091 92)",
+          "oklch(26% 0.107 92)",
+          "oklch(38% 0.123 92)",
+          "oklch(49% 0.139 92)",
+          "oklch(61% 0.152 92)",
+          "oklch(72% 0.137 92)",
+          "oklch(84% 0.121 92)",
+          "oklch(95% 0.105 92)"
+        ]
+      },
+      "log-group": {
+        "role": "neutral",
+        "displayName": "Log Group",
+        "canonical": "#93c5fd",
+        "tonalRamp": [
+          "oklch(15% 0.057 252)",
+          "oklch(26% 0.067 252)",
+          "oklch(38% 0.077 252)",
+          "oklch(49% 0.086 252)",
+          "oklch(61% 0.095 252)",
+          "oklch(72% 0.085 252)",
+          "oklch(84% 0.075 252)",
+          "oklch(95% 0.065 252)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Run header commit subject; Setup page title."
+      },
+      "headline-sm": {
+        "displayName": "Headline small",
+        "purpose": "Commit title without a run; connect panel; login title."
+      },
+      "title-sheet": {
+        "displayName": "Sheet title",
+        "purpose": "The sheet's title."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section titles inside Setup panels."
+      },
+      "state-line": {
+        "displayName": "State line",
+        "purpose": "Run state sentence beside the 44px ring, in its status ink tone."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default text, rail commit subjects, stage names."
+      },
+      "body-sm": {
+        "displayName": "Body small",
+        "purpose": "Run meta, rail notes, callouts, log toolbar controls."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, 6px above the control."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Every input, select and textarea; never below 16px."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Hints, SHA-author-age lines, stage durations."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Chips and Play track names; sentence or lower case."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "SHAs, refs, package id, tags, version codes."
+      },
+      "mono-figure": {
+        "displayName": "Mono figure",
+        "purpose": "AAB version and test count in Outputs."
+      },
+      "log": {
+        "displayName": "Log",
+        "purpose": "Log lines and failure excerpts."
+      }
+    },
+    "shadows": [
+      {
+        "name": "panel-rest",
+        "value": "0 1px 3px rgb(16 24 40 / 0.04), 0 4px 16px -4px rgb(16 24 40 / 0.05)",
+        "purpose": "Every panel and the log pane."
+      },
+      {
+        "name": "overlay",
+        "value": "0 24px 64px -12px rgb(15 23 42 / 0.28), 0 8px 24px -8px rgb(15 23 42 / 0.12)",
+        "purpose": "The sheet, over an ink scrim at 45% with 2px backdrop blur."
+      },
+      {
+        "name": "segment-selected",
+        "value": "0 1px 2px rgb(15 23 42 / 0.08), 0 0 0 1px var(--color-line)",
+        "purpose": "The chosen option in a segmented track."
+      },
+      {
+        "name": "focus-field",
+        "value": "0 0 0 3px color-mix(in srgb, var(--color-brand) 18%, transparent)",
+        "purpose": "Field focus ring, with a brand border."
+      },
+      {
+        "name": "focus-outline",
+        "value": "outline: 2px solid var(--color-brand); outline-offset: 2px",
+        "purpose": "Global :focus-visible."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-expo",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Every state change and control transition."
+      },
+      {
+        "name": "control",
+        "value": "160ms ease-out-expo",
+        "purpose": "Button, field and segment colour/border transitions; press scale 0.98 at 120ms."
+      },
+      {
+        "name": "state-change",
+        "value": "200ms ease-out-expo",
+        "purpose": "Ring arc stroke and core, strip fill (scaleX from 0), sheet rise and scrim fade."
+      },
+      {
+        "name": "arc-sweep",
+        "value": "2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite; dasharray 36 100 on pathLength 100",
+        "purpose": "The only continuous motion: a highlight travelling a running stage's arc."
+      },
+      {
+        "name": "sheet-in",
+        "value": "200ms ease-out-expo from translateY(12px) scale(0.985), opacity 0",
+        "purpose": "Sheet entrance."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Removes the sweep (arc goes solid), the sheet rise and the strip fill."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one primary action per view: Start build, Re-run failed, the sheet's confirm.",
+      "html": "<button class=\"ds-btn ds-btn-primary\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M6 3l14 9-14 9V3z\"/></svg>Start build</button>",
+      "css": ".ds-btn{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;border-radius:var(--radius-control,8px);font-size:14px;font-weight:600;white-space:nowrap;border:0;cursor:pointer;transition:background-color 160ms cubic-bezier(0.16,1,0.3,1),border-color 160ms cubic-bezier(0.16,1,0.3,1),color 160ms cubic-bezier(0.16,1,0.3,1),transform 120ms cubic-bezier(0.16,1,0.3,1);} .ds-btn:active{transform:scale(0.98);} .ds-btn:focus-visible{outline:2px solid var(--color-brand,#00358f);outline-offset:2px;} .ds-btn-primary{background:var(--color-brand,#00358f);color:#fff;} .ds-btn-primary:hover{background:var(--color-brand-dark,#002570);}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Beside a primary: Cancel, Re-run all.",
+      "html": "<button class=\"ds-btn2\">Re-run all</button>",
+      "css": ".ds-btn2{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:8px;font-size:14px;font-weight:600;background:var(--color-card,#fff);color:var(--color-body,#334155);border:1px solid var(--color-line,#e2e8f0);cursor:pointer;transition:background-color 160ms cubic-bezier(0.16,1,0.3,1),border-color 160ms cubic-bezier(0.16,1,0.3,1),color 160ms cubic-bezier(0.16,1,0.3,1);} .ds-btn2:hover{background:var(--color-brand-wash,#eef3fc);border-color:color-mix(in srgb,#00358f 30%,#e2e8f0);color:var(--color-brand,#00358f);} .ds-btn2:focus-visible{outline:2px solid #00358f;outline-offset:2px;}"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Low-weight utility: refresh, close, back, open on GitHub.",
+      "html": "<button class=\"ds-btn3\">Open on GitHub</button>",
+      "css": ".ds-btn3{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:500;background:transparent;border:0;color:var(--color-muted,#5b6679);cursor:pointer;transition:background-color 160ms cubic-bezier(0.16,1,0.3,1),color 160ms cubic-bezier(0.16,1,0.3,1);} .ds-btn3:hover{background:var(--color-line-soft,#f1f5f9);color:var(--color-ink,#0f172a);} .ds-btn3:focus-visible{outline:2px solid #00358f;outline-offset:2px;}"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "48px text field with label and hint; 16px text, brand focus ring.",
+      "html": "<label class=\"ds-field-wrap\"><span class=\"ds-label\">What's new (en-US)</span><input class=\"ds-field\" placeholder=\"Fixes and improvements\"><span class=\"ds-hint\">500 characters at most</span></label>",
+      "css": ".ds-field-wrap{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:block;max-width:360px;} .ds-label{display:block;margin-bottom:6px;color:var(--color-ink,#0f172a);font-size:14px;font-weight:500;} .ds-field{width:100%;height:48px;padding:0 12px;border:1px solid var(--color-line,#e2e8f0);border-radius:8px;background:#fff;color:var(--color-ink,#0f172a);font:inherit;font-size:16px;caret-color:#00358f;transition:border-color 160ms cubic-bezier(0.16,1,0.3,1),box-shadow 160ms cubic-bezier(0.16,1,0.3,1);} .ds-field::placeholder{color:var(--color-muted,#5b6679);} .ds-field:focus{outline:none;border-color:#00358f;box-shadow:0 0 0 3px color-mix(in srgb,#00358f 18%,transparent);} .ds-hint{display:block;margin-top:6px;color:var(--color-muted,#5b6679);font-size:12px;}"
+    },
+    {
+      "name": "Segmented Choice",
+      "kind": "custom",
+      "refersTo": "segmented-track",
+      "description": "Tinted track; the chosen option lifts to white. Mode, track and rollout in the start sheet.",
+      "html": "<div class=\"ds-seg\"><label><input type=\"radio\" name=\"t\">internal</label><label><input type=\"radio\" name=\"t\" checked>beta</label><label><input type=\"radio\" name=\"t\"><span class=\"ds-ship\">production</span></label></div>",
+      "css": ".ds-seg{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--color-page,#f4f6fc);border:1px solid var(--color-line-soft,#f1f5f9);max-width:420px;font-size:14px;} .ds-seg>label{flex:1 1 0;position:relative;display:flex;align-items:center;min-height:44px;padding:6px 12px;border-radius:8px;color:var(--color-muted,#5b6679);font-weight:500;cursor:pointer;transition:background-color 160ms cubic-bezier(0.16,1,0.3,1),color 160ms,box-shadow 160ms;} .ds-seg>label:hover{color:var(--color-ink,#0f172a);} .ds-seg>label:has(input:checked){background:#fff;color:var(--color-ink,#0f172a);box-shadow:0 1px 2px rgb(15 23 42/0.08),0 0 0 1px var(--color-line,#e2e8f0);} .ds-seg>label:has(input:focus-visible){outline:2px solid #00358f;outline-offset:1px;} .ds-seg input{position:absolute;opacity:0;pointer-events:none;} .ds-ship{color:var(--color-ship-ink,#b34700);}"
+    },
+    {
+      "name": "Ship Chips",
+      "kind": "chip",
+      "refersTo": "chip-ship",
+      "description": "Release and tag flags on the rail and in the run header; the neutral chip marks a rehearsal.",
+      "html": "<span class=\"ds-chips\"><span class=\"ds-chip ds-chip-tag\">v2.4.0</span><span class=\"ds-chip ds-chip-ship\">release → production</span><span class=\"ds-chip ds-chip-plain\">rehearsal → beta</span></span>",
+      "css": ".ds-chips{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;flex-wrap:wrap;gap:6px;} .ds-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:9999px;font-size:11px;font-weight:600;} .ds-chip-ship{background:var(--color-ship-wash,#fff1e5);color:var(--color-ship-ink,#b34700);} .ds-chip-tag{background:var(--color-ship-wash,#fff1e5);color:var(--color-ship-ink,#b34700);border:1px solid color-mix(in srgb,#f66600 40%,transparent);font-family:var(--font-mono,ui-monospace,monospace);font-weight:500;} .ds-chip-plain{border:1px solid var(--color-line,#e2e8f0);color:var(--color-body,#334155);}"
+    },
+    {
+      "name": "Stage Ring",
+      "kind": "custom",
+      "refersTo": "rail-row-selected",
+      "description": "Signature: six stage arcs clockwise from the top (60° slots, 12° gaps), core turns Signal Orange once shipped; only the running arc sweeps.",
+      "html": "<div class=\"ds-ring-row\"><svg width=\"44\" height=\"44\" viewBox=\"0 0 44 44\" role=\"img\" aria-label=\"Run 12, running\"><g fill=\"none\" stroke-width=\"4\" stroke-linecap=\"round\"><path d=\"M 24.013 2.603 A 19.5 19.5 0 0 1 38.001 10.795\" stroke=\"#10b981\"/><path d=\"M 40.014 14.591 A 19.5 19.5 0 0 1 40.014 29.409\" stroke=\"#10b981\"/><path d=\"M 38.001 33.205 A 19.5 19.5 0 0 1 24.013 41.397\" stroke=\"#93c5fd\"/><path class=\"ds-sweep\" pathLength=\"100\" d=\"M 38.001 33.205 A 19.5 19.5 0 0 1 24.013 41.397\" stroke=\"#3b82f6\"/><path d=\"M 19.987 41.397 A 19.5 19.5 0 0 1 5.999 33.205\" stroke=\"#cbd5e1\"/><path d=\"M 3.986 29.409 A 19.5 19.5 0 0 1 3.986 14.591\" stroke=\"#cbd5e1\"/><path d=\"M 5.999 10.795 A 19.5 19.5 0 0 1 19.987 2.603\" stroke=\"#cbd5e1\"/></g><circle cx=\"22\" cy=\"22\" r=\"5.72\" fill=\"#0f172a\"/></svg><div><p class=\"ds-state\">Running: Tests</p><p class=\"ds-meta\">Run 12 · 3m 41s · started from the console</p></div></div>",
+      "css": ".ds-ring-row{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;align-items:center;gap:16px;} .ds-state{margin:0;font-size:15px;font-weight:600;color:var(--color-run-ink,#1d4ed8);} .ds-meta{margin:2px 0 0;font-size:13px;color:var(--color-muted,#5b6679);} .ds-sweep{stroke-dasharray:36 100;animation:ds-arc 2.4s cubic-bezier(0.45,0,0.55,1) infinite;} @keyframes ds-arc{from{stroke-dashoffset:100}to{stroke-dashoffset:-36}} @media (prefers-reduced-motion:reduce){.ds-sweep{animation:none;stroke-dasharray:none;}}"
+    },
+    {
+      "name": "Top Bar",
+      "kind": "nav",
+      "refersTo": "top-bar",
+      "description": "64px sticky bar: identity at the start, nav, Start build and sign-out at the end.",
+      "html": "<header class=\"ds-top\"><div class=\"ds-id\"><strong>FusionHRM Android</strong><span>com.fusionapps.fusionhrm</span></div><nav class=\"ds-nav\"><a href=\"#\" aria-current=\"page\">Pipeline</a><a href=\"#\">Setup<i class=\"ds-dot\"></i></a></nav></header>",
+      "css": ".ds-top{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;align-items:center;gap:24px;height:64px;padding:0 24px;background:rgb(255 255 255/0.95);border-bottom:1px solid var(--color-line,#e2e8f0);} .ds-id{display:flex;flex-direction:column;line-height:1.25;} .ds-id strong{font-size:15px;font-weight:700;color:var(--color-ink,#0f172a);} .ds-id span{font-family:var(--font-mono,ui-monospace,monospace);font-size:12px;color:var(--color-muted,#5b6679);} .ds-nav{margin-inline-start:auto;display:flex;gap:4px;} .ds-nav a{display:flex;align-items:center;height:40px;padding:0 12px;border-radius:8px;font-size:14px;font-weight:500;color:var(--color-muted,#5b6679);text-decoration:none;transition:background-color 200ms,color 200ms;} .ds-nav a:hover,.ds-nav a[aria-current=page]{background:var(--color-line-soft,#f1f5f9);color:var(--color-ink,#0f172a);} .ds-nav a:focus-visible{outline:2px solid #00358f;outline-offset:2px;} .ds-dot{margin-inline-start:8px;width:8px;height:8px;border-radius:9999px;background:var(--color-warn,#f59e0b);}"
+    },
+    {
+      "name": "Log Pane",
+      "kind": "card",
+      "refersTo": "log-pane",
+      "description": "The one dark surface: toolbar, step rows, Geist Mono lines.",
+      "html": "<section class=\"ds-log\"><div class=\"ds-log-bar\"><strong>Tests</strong><span>Live log on GitHub</span></div><div class=\"ds-log-body\"><div><i>41</i><span class=\"ds-cmd\">flutter test --coverage</span></div><div><i>42</i><span>00:12 +118: All widget tests</span></div><div class=\"ds-err\"><i>43</i><span>Error: Expected: 3  Actual: 2</span></div></div></section>",
+      "css": ".ds-log{overflow:hidden;border-radius:12px;background:var(--color-log,#0b1220);color:var(--color-log-text,#d6deeb);box-shadow:0 1px 3px rgb(16 24 40/0.04),0 4px 16px -4px rgb(16 24 40/0.05);max-width:520px;} .ds-log-bar{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--color-log-raised,#111a2e);border-bottom:1px solid var(--color-log-line,#1e293b);font-size:13px;color:var(--color-log-muted,#8391a8);} .ds-log-bar strong{color:#fff;font-weight:600;} .ds-log-body{padding:4px 0;font-family:var(--font-mono,ui-monospace,monospace);font-size:12.5px;line-height:1.6;} .ds-log-body>div{display:grid;grid-template-columns:3.5rem 1fr;gap:12px;padding:0 8px;} .ds-log-body>div:hover{background:var(--color-log-raised,#111a2e);} .ds-log-body i{font-style:normal;text-align:end;color:var(--color-log-muted,#8391a8);font-variant-numeric:tabular-nums;} .ds-cmd{color:var(--color-log-group,#93c5fd);} .ds-err{background:#2a1317;color:var(--color-log-error,#fca5a5);}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Branch Log With Its Pipeline Attached",
+    "overview": "The console is the commit history of a branch, and every commit wears its run. The page reads like a ledger that happens to be live: a tinted page, white hairline panels, slate ink, one deep blue for action and selection. The world is borrowed on purpose. It is the Fusion HRM web console's default preset (`CRM/human-resource-management/apps/frontend/DESIGN.md`), carried over so the pipeline reads as part of the same toolset; where this build departs from that preset, the departure is for contrast or for meaning and is recorded below.\n\nDensity is operational, not dashboard. Body copy sits at 14px, most meta at 13px and 12px, and the page spends its colour on state rather than decoration. Status hues draw the marks (ring arcs, strip fills, state glyphs); words stay in ink or in the darker ink tone of their status. Signal Orange appears only where something shipped: `release:` commits, v-tags, the production track, a ring whose core has gone orange. The one dark surface is the Geist Mono log pane, because that is where the machine talks.\n\nMotion is scarce and tied to truth. One 200ms ease-out carries state changes; the arc of a running stage carries a slow travelling highlight; when nothing is running, nothing on the page moves.",
+    "keyCharacteristics": [
+      "Fusion HRM default preset: tinted page, white 20px-radius hairline panels, Montserrat 14px body.",
+      "Deep Ledger Blue only for primary action, links, focus and the active selection.",
+      "The six-arc stage ring is the signature; the stage strip is the same ring unrolled.",
+      "Status colour draws glyphs and arcs; status words use the darker ink tones.",
+      "Signal Orange is reserved for ship moments; attention states use amber.",
+      "One dark Geist Mono log pane; everything else is light.",
+      "Only the running arc animates continuously; all state changes use one 200ms ease-out."
+    ],
+    "rules": [
+      {
+        "name": "The Ship-Only Orange Rule",
+        "body": "Signal Orange marks only a release commit, a v-tag, the production track, or a run that reached Google Play. Warnings, missing setup and every other call for attention use the amber `warn` set. A rehearsal release keeps an ink ring core, because nothing shipped.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ink Words Rule",
+        "body": "A status hue draws; it never sets a word. Words in a status colour use the `*-ink` tone (4.5:1 or better on white), and a warning callout pairs an amber glyph with ink text.",
+        "section": "colors"
+      },
+      {
+        "name": "The Status-Means-Run-State Rule",
+        "body": "`ok`, `fail`, `run`, `warn` and `idle` express GitHub's state for a stage, a run or a setup check. They are never decoration and never stand in for the brand.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Dark Pane Rule",
+        "body": "The log pane is the only dark surface. Everything else, including overlays, is white on tinted paper.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mono-Is-Machine Rule",
+        "body": "Geist Mono is only for strings a machine produced and a person may copy: SHAs, refs, package ids, version codes, log lines. Headings, labels and state words stay in Montserrat.",
+        "section": "typography"
+      },
+      {
+        "name": "The Opt-In Figures Rule",
+        "body": "Tabular figures are off by default (`tnum` 0 on the body, a departure from the HRM preset) and switched on per element (`.tabular`) where numbers update in place: durations, elapsed time, version codes, line numbers.",
+        "section": "typography"
+      },
+      {
+        "name": "The Sixteen-Pixel Control Rule",
+        "body": "Form controls never go below 16px text; phones zoom the page otherwise. (Inherited from the preset.)",
+        "section": "typography"
+      },
+      {
+        "name": "The Static Panels Don't Lift Rule",
+        "body": "Panels are information, not buttons; they get no hover shadow or transform. Hover feedback is a fill change (`line-soft` or `brand-wash`).",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do colour words by role (`ink`, `body`, `muted`) and print status words in the `*-ink` tone; let `ok`, `fail`, `run`, `warn` draw only marks.",
+      "Do use the `warn` set (amber glyph, `warn-wash` fill, ink words) for missing setup, a workflow not on main and the Setup dot.",
+      "Do reuse the ring's six-slot geometry (60° slots, 12° gaps, round caps) and the shared arc colour map wherever a run's stages are drawn.",
+      "Do keep every state change at 200ms ease-out-expo (`cubic-bezier(0.16, 1, 0.3, 1)`) and honour reduced motion by removing the sweep, the sheet rise and the strip fill.",
+      "Do put machine strings (SHA, ref, version code, tag, log) in Geist Mono and switch on tabular figures for numbers that tick.",
+      "Do keep hit targets at 40px or more (44px for segmented options, rail controls and log step rows)."
+    ],
+    "donts": [
+      "Don't use Signal Orange for anything but a shipped build, a release commit, a v-tag or the production track.",
+      "Don't set words in the bright status hues (`ok`, `fail`, `run`, `warn`) on white or on their washes.",
+      "Don't add a second dark surface; the log pane is the only one.",
+      "Don't animate anything continuously except the running arc; nothing moves when nothing is running.",
+      "Don't add hover lift or shadow change to static panels."
+    ]
+  }
+}

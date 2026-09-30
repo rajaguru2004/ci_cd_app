@@ -137,7 +137,7 @@ export default function SetupPage() {
                           <span className="text-[12px] text-muted">{STATE_WORD[c.state]}</span>
                         </p>
                         <p className="mt-0.5 break-words text-[13px] text-body">{c.detail}</p>
-                        {c.fix && <p className="mt-1 text-[13px] font-medium text-warn-ink">{c.fix}</p>}
+                        {c.fix && <p className="mt-1 text-[13px] font-medium text-ink">{c.fix}</p>}
                         {c.key === 'play-secret' && (c.state === 'missing' || c.state === 'ok') && data.configured && (
                           <div className="mt-3 flex flex-wrap gap-2">
                             {data.play.configured && (
@@ -272,9 +272,11 @@ export default function SetupPage() {
                 </div>
                 <div className="flex items-baseline justify-between gap-4 px-5 py-2.5">
                   <dt className="text-muted">Next run builds</dt>
-                  <dd className="font-mono font-semibold text-ink tabular">
-                    {data?.nextRunNumber ? data.nextRunNumber + data.variables.versionCodeOffset : 'once GitHub is connected'}
-                  </dd>
+                  {data?.nextRunNumber ? (
+                    <dd className="font-mono font-semibold text-ink tabular">{data.nextRunNumber + data.variables.versionCodeOffset}</dd>
+                  ) : (
+                    <dd className="text-muted">once GitHub is connected</dd>
+                  )}
                 </div>
                 <div className="flex items-baseline justify-between gap-4 px-5 py-2.5">
                   <dt className="text-muted">Release commits go to</dt>

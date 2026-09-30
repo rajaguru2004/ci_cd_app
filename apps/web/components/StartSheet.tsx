@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, TriangleAlert } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type { Mode, PlayTrack, StartRunBody } from '@/lib/types';
 import { Sheet } from './Sheet';
@@ -138,12 +138,15 @@ export function StartSheet({
     >
       <form id="start-run" onSubmit={submit} className="space-y-6">
         {blocked && (
-          <div role="alert" className="rounded-[var(--radius-control)] bg-warn-wash px-4 py-3 text-[13px] text-ink">
-            <p className="font-semibold text-warn-ink">Nothing can start yet</p>
-            <p className="mt-1">{blocked}</p>
-            <a href="/setup" className="mt-2 inline-block font-semibold text-warn-ink underline">
-              Open Setup
-            </a>
+          <div role="alert" className="flex gap-3 rounded-[var(--radius-control)] bg-warn-wash px-4 py-3 text-[13px] text-ink">
+            <TriangleAlert size={16} aria-hidden className="mt-0.5 shrink-0" color="var(--color-warn)" />
+            <div>
+              <p className="font-semibold text-ink">Nothing can start yet</p>
+              <p className="mt-1">{blocked}</p>
+              <a href="/setup" className="mt-2 inline-block font-semibold text-brand underline">
+                Open Setup
+              </a>
+            </div>
           </div>
         )}
         <div>

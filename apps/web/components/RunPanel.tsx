@@ -209,11 +209,16 @@ export function RunPanel({
                   {run.tag}
                 </span>
               )}
-              {(detail.plan?.mode ?? run.mode) === 'release' && (
-                <span className="inline-flex h-5 items-center rounded-full bg-ship-wash px-2 text-[11px] font-semibold text-ship-ink">
-                  {rehearsal ? 'rehearsal' : 'release'} → {detail.plan?.track ?? run.track ?? 'default track'}
-                </span>
-              )}
+              {(detail.plan?.mode ?? run.mode) === 'release' &&
+                (rehearsal ? (
+                  <span className="inline-flex h-5 items-center rounded-full border border-line px-2 text-[11px] font-semibold text-body">
+                    rehearsal → {detail.plan?.track ?? run.track ?? 'default track'}
+                  </span>
+                ) : (
+                  <span className="inline-flex h-5 items-center rounded-full bg-ship-wash px-2 text-[11px] font-semibold text-ship-ink">
+                    release → {detail.plan?.track ?? run.track ?? 'default track'}
+                  </span>
+                ))}
             </p>
           </div>
         </div>
@@ -228,7 +233,7 @@ export function RunPanel({
           </p>
         )}
         {poll.error && (
-          <p className="mt-3 text-[12px] text-warn-ink">Showing the last update: {poll.error.message}</p>
+          <p className="mt-3 text-[12px] text-muted">Showing the last update: {poll.error.message}</p>
         )}
       </header>
 

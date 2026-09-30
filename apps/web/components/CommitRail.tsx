@@ -96,10 +96,10 @@ export function CommitRail({
 
       {stream && !stream.workflow.present && (
         <div className="mx-4 mt-3 flex gap-3 rounded-[var(--radius-card)] bg-warn-wash px-4 py-3 text-[13px] text-ink">
-          <TriangleAlert size={16} aria-hidden className="mt-0.5 shrink-0 text-warn-ink" />
+          <TriangleAlert size={16} aria-hidden className="mt-0.5 shrink-0" color="var(--color-warn)" />
           <p>
             {stream.workflow.file} is not on {stream.repo.defaultBranch} yet, so no pipeline has run.{' '}
-            <Link href="/setup" className="font-semibold text-warn-ink underline">
+            <Link href="/setup" className="font-semibold text-brand underline">
               Open Setup
             </Link>
           </p>

@@ -27,9 +27,9 @@ from GitHub (runs, jobs, steps, logs, artifacts) or from Google Play (tracks) fo
 | The pipeline's own `deploy` lane (changelog, R8 mapping, version pre-check, report), validate-only | accepted; `release-info.json` written |
 | The pipeline's `play_status` lane | read all tracks; `play-status.json` written |
 | `feat/crm-project-attendance` keystore | same upload key as `main` (safe to merge) |
-| `release-plan.sh` scenarios (console / `release:` commit / tags / refusals) | 54 checks pass |
+| `release-plan.sh` scenarios (console / `release:` commit / tags / rehearsal / refusals) | 63 checks pass |
 | `release.yml` | actionlint clean |
-| Console API unit tests (stages, artifacts, sessions, sign-in lockout, GitHub client over HTTP, Play client over HTTP, sealed box) | 67 pass |
+| Console API tests: units (stages, artifacts, sessions, sign-in lockout, sealed box, GitHub and Play clients over HTTP, retries) and 10 end-to-end against a GitHub-shaped server | 79 pass |
 | Console in Docker (`./scripts/deploy.sh up`) | both containers healthy; sign-in, session, Play and Setup work through the proxy |
 
 Not yet exercised: a real run on GitHub Actions. It needs the two steps in "Go live" below.
@@ -55,7 +55,9 @@ Not yet exercised: a real run on GitHub Actions. It needs the two steps in "Go l
 
 3. In the console: **Setup → Copy the console key to GitHub** (stores the Play key as the
    `PLAY_SERVICE_ACCOUNT_JSON` Actions secret, encrypted for GitHub), then **Start build →
-   Check Play access**, then a **Build and test**, then a **Release → internal**.
+   Check Play access**, then a **Build and test**, then a **Release → internal** with
+   **Rehearsal only** ticked (Google Play validates everything, nothing is published), and
+   finally the real **Release → internal**.
 
 ## Run it on this machine
 

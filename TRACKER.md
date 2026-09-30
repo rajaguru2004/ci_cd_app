@@ -1,16 +1,15 @@
 # Mobile CI/CD POC — task tracker
 
-Status: **Phase 3 (UI) in progress.** Opened 2026-09-29 19:33 IST. Last update 20:08.
-Estimated completion: **~23:45 IST** for everything, including the live end-to-end run
-(ahead of the first estimate of 00:30); the live run also waits on three steps only you can
-take (§4).
+Status: **Built, deployed on this machine, verified against Google Play. The live GitHub
+Actions run waits on two steps only you can take (§4).** Opened 2026-09-29 19:33 IST;
+resumed 2026-09-30 12:07; last update 2026-09-30 12:53.
 
-Progress: 3 of 7 phases done (Phase 1 all but the commit) · 26 of 45 tasks done · about
-3 h 30 min of work left.
+Progress: 6 of 7 phases done · 55 of 58 tasks done. Remaining work after your two steps:
+about 40 minutes (a Play-access check, a build, a rehearsal and a real internal release on
+GitHub Actions, then capturing the run screens for the design record).
 
-Times are estimates of working time; each phase line is updated with the real finish time
-when it lands. Nothing is deleted from this file: a finished task flips to `[x]`, a changed
-plan is struck through with the reason.
+Nothing is deleted from this file: a finished task flips to `[x]`, a changed plan is struck
+through with the reason.
 
 ---
 
@@ -23,119 +22,149 @@ plan is struck through with the reason.
 > real builds, real tests. Android + Google Play only. A quick UI to manage it visually,
 > deployed via Docker on our machine.
 
-## 2. Decisions (2026-09-29)
+2026-09-30: "connect the Play Console key and verify; implement end to end, verify, deliver a
+solid working stable output which will be deployed on one of the servers."
+
+## 2. Decisions
 
 | Question | Decision |
 |---|---|
 | Where it lives | Standalone service in `ci_cd_app`, HRM stack (NestJS API + Next.js UI), own Docker Compose; HRM code untouched |
 | Who uses it | Mobile engineers only |
 | What starts a run | Console (`workflow_dispatch`), a `release:` commit on `main`, a `v*` tag on a `main` commit — all run one `release.yml` |
-| Credentials | GitHub fine-grained token + Play service-account JSON, both ready; you put them in `.env` / the Setup page |
-| Pushing to the mobile repo | Prepared and validated locally; **pushed only after you confirm** |
-| UI structure | "Commit stream" (chosen on the decision page, seed `c05418e1`), Fusion HRM look |
+| Default track for `release:` commits | `internal` (was production under Bitrise); `release(production): …` or the repo variable `PLAY_DEFAULT_TRACK` changes it — **confirm (§4)** |
+| Version codes | run number + 1000; Play's highest is 9 |
+| UI structure | "Commit stream" (decision page, seed `c05418e1`), Fusion HRM look |
+| Pushing to the mobile repo | Prepared as a local commit; the push to `main` was blocked by the permission guard — **yours (§4)** |
 
 ## 3. Phases
 
 | # | Phase | Estimate | Status | Finished |
 |---|---|---|---|---|
-| 0 | Discovery and decisions | 20 min | done | 19:53 |
-| 1 | Mobile pipeline: `release.yml`, plan script, Fastlane | 40 min | done (commit prepared at push time) | 20:00 |
-| 2 | Console API (NestJS) | 60 min | done | 20:08 |
-| 3 | Console UI (Next.js, commit stream) | 80 min | in progress | |
-| 4 | Docker deploy on this machine | 25 min | | |
-| 5 | Live end-to-end run on GitHub + Google Play | 40 min | waits on §4 | |
-| 6 | Design finish: review, fixes, DESIGN.md | 35 min | | |
+| 0 | Discovery and decisions | 20 min | done | 09-29 19:53 |
+| 1 | Mobile pipeline: `release.yml`, plan script, Fastlane | 40 min | done (push pending, §4) | 09-30 12:31 |
+| 2 | Console API (NestJS) | 60 min | done | 09-30 12:36 |
+| 3 | Console UI (Next.js, commit stream) | 80 min | done | 09-30 12:34 |
+| 4 | Docker deploy on this machine | 25 min | done | 09-30 12:36 |
+| 5 | Live end-to-end run on GitHub + Google Play | 40 min | Google Play half done; GitHub half waits on §4 | |
+| 6 | Design finish: review, fixes, DESIGN.md | 35 min | done (run screens to capture on the first real run) | 09-30 12:52 |
 
 ### Phase 0 — Discovery and decisions (done)
 
 - [x] Map the HRM platform: NestJS 11 backend, Next.js 16 frontend, Docker Compose deploy.
-- [x] Map the mobile repo: `ci.yml` (tests) only on `feat/crm-project-attendance`, none on
-      `main`; upload keystore and `key.properties` committed; package `com.fusionapps.fusionhrm`.
+- [x] Map the mobile repo: `ci.yml` only on `feat/crm-project-attendance`, none on `main`;
+      upload keystore and `key.properties` committed; package `com.fusionapps.fusionhrm`.
 - [x] Read the existing HRM `POST /mobile-release` module (Bitrise trigger, out of credits).
 - [x] Confirm Flutter 3.47.5 (the version `ci.yml` pins) is a real stable release.
-- [x] Decision round: placement, users, credentials, triggers.
-- [x] PRODUCT.md written.
-- [x] Design round: "Commit stream" chosen; direction contract in `.impeccable/surfaces/`.
+- [x] Decision round; PRODUCT.md; design round ("Commit stream"); direction contract.
 
 ### Phase 1 — Mobile pipeline (`mobile-pipeline/`, mirrors the mobile repo)
 
 - [x] `.github/scripts/release-plan.sh` — decides mode/track/notes/version for each trigger.
 - [x] `.github/workflows/release.yml` — Plan → Tests (+ optional emulator suite) → Signed AAB →
-      Google Play (Fastlane); Play-access check mode.
-- [x] `fastlane/Fastfile` + `Appfile`: `deploy` and `play_status` lanes.
+      Google Play (Fastlane); Play-access check mode; rehearsal mode.
+- [x] `fastlane/Fastfile` + `Appfile`: `deploy` (with `PLAY_VALIDATE_ONLY`) and `play_status`.
 - [x] `Gemfile` + `Gemfile.lock` — fastlane 2.240.1, resolved in a `ruby:3.3` container.
-- [x] Plan-script checks — `tests/release-plan.test.sh`: **54 passed** (dispatch, `release:` and
-      `release(<track>):` commits, file-notes / annotated / bare tags, tag off main, bad tag,
-      blank and 501-character notes, bad version, bad offset). shellcheck clean.
+- [x] Plan-script suite `tests/release-plan.test.sh`: **63 passed** (dispatch, rehearsal,
+      `release:` and `release(<track>):` commits, file-notes / annotated / bare tags, tag off
+      main, bad tag, blank and 501-character notes, bad version, bad offset). shellcheck clean.
 - [x] `actionlint` clean on `release.yml`.
-- [x] `bundle exec fastlane lanes` lists `deploy` and `play_status`.
-- [x] Local signed AAB from `main` (Flutter 3.38.4): 64.7 MB, signed by
-      `CN=PrithiyaC, OU=SkillHive` (SHA-256 `ED:6C:00:56:…:E8:02:D3`), R8 mapping present.
-      **Note:** `feat/crm-project-attendance` replaced the keystore today (`3dc8033`); only the
-      key registered in Play Console > App integrity > Upload key will be accepted.
-- [ ] Commit prepared in a separate worktree on `origin/main` (+ store README section).
+- [x] Local signed AAB from `main`: 64.7 MB, signer `CN=PrithiyaC, OU=SkillHive`, SHA-1
+      `67:D7:42:A7:E1:36:2A:F4:47:B5:E7:0E:27:11:B0:28:CA:10:3D:E0`, R8 mapping present.
+- [x] `feat/crm-project-attendance` AAB signs with the **same** upload key (safe to merge).
+- [x] **Google Play accepted the `main` AAB** in a validate-only upload to internal
+      (versionCode 1001; nothing published) — the committed keystore is the registered key.
+- [x] **Rehearsal of the CI release job** (`deploy` lane, validate-only, real Play): bundle,
+      R8 mapping and en-US changelog uploaded into an edit and validated; `release-info.json`
+      written. `play_status` lane read all tracks; `play-status.json` written.
+- [x] Store README "Releasing to Google Play" rewritten for the new pipeline.
+- [x] Commit prepared on branch `ci/release-pipeline` of the mobile repo: `dc3b225`
+      (CI files only).
+- [ ] **Push to the mobile repo's `main`** — blocked by the session's permission guard; yours
+      (§4). ~~Push it from this session~~ (not allowed without your explicit go-ahead).
 
 ### Phase 2 — Console API (`apps/api`)
 
-- [x] GitHub client: ETag cache (304s cost no rate limit), redirects, readable errors.
-- [x] Stream: branch commits + their runs, release commits and tags flagged.
-- [x] Run detail: jobs, steps, six-stage mapping, artifacts, first failure with its `##[error]` lines.
-- [x] Artifacts: plan, test results (Flutter JSON reporter), build info, Play release info.
-- [x] Logs: per-job text; honest "available when the job finishes" while it runs.
-- [x] AAB download (unzipped from the artifact), R8 mapping download.
-- [x] Start run (`workflow_dispatch` with run id back), cancel, re-run failed, re-run all.
-- [x] Setup: token, repo, workflow on main, Fastlane, signing files, Play secret, Play status.
-- [x] Play key upload → sealed-box encrypted → GitHub Actions secret (never stored here).
-- [x] Login: one shared password from `.env`, signed httpOnly session cookie.
-- [x] Unit tests: **55 passed** — stage mapping (11 scenarios), run states, release markers,
-      test-report parsing, error lines, artifact zips, sessions, ETag/redirect/401 over real
-      HTTP, sealed-box round trip. `tsc` clean.
+- [x] GitHub client: ETag cache (304s cost no rate limit), redirects without the token, one
+      retry for reads that fail in transit, readable errors.
+- [x] Stream, run detail (jobs, steps, six-stage mapping, first failure with its `##[error]`
+      lines), artifacts (plan, Flutter test report, build info, Play release info).
+- [x] Logs (honest "available when the job finishes" while running), AAB + R8 mapping download.
+- [x] Start run (`workflow_dispatch`, run id back; build / release / rehearsal / Play check),
+      cancel, re-run failed, re-run all.
+- [x] Google Play client: service-account JWT → OAuth token → read-only edit of every track;
+      explains a missing invite, a disabled API, a revoked key; retries a transient failure.
+- [x] Setup: token, repo, workflow on main, Fastlane, signing files, console Play key (live),
+      Play secret, Play-access run; "copy the console key into the GitHub secret" (sealed box).
+- [x] Sign-in: shared password, signed httpOnly cookie, 10 failures per address → 15-minute
+      lockout; real client address through the proxies.
+- [x] Tests: **79 passed** — including 10 end-to-end against a GitHub-shaped HTTP server
+      (sign-in, stream, run detail, logs, AAB, dispatch with rehearsal, refusals, cancel,
+      re-run) and the Play client over HTTP. `tsc` clean.
 
 ### Phase 3 — Console UI (`apps/web`)
 
-- [ ] Tokens and shell from the Fusion HRM default preset; Montserrat + Geist Mono.
-- [ ] Commit stream: branch switcher, rail with six-arc stage rings, release and tag flags.
-- [ ] Run view: header, six-stage strip, steps, log pane, outputs (AAB, tests, Google Play).
-- [ ] Start-build sheet: branch, build / release / Play check, track, notes, status.
-- [ ] Setup page: checklist, Play key upload, triggers explained.
-- [ ] Login page.
-- [ ] Loading, empty, error and "not configured" states; phone layout.
+- [x] Tokens and shell from the Fusion HRM default preset; Montserrat + Geist Mono;
+      contrast-checked muted (#5B6679, 5.37:1) and orange text (#B34700, 5.50:1).
+- [x] Commit stream with six-arc stage rings, release/tag flags, "runs elsewhere".
+- [x] Run view: header with the ring, six-stage strip, failure callout, per-step log pane
+      (folds, filter, download), outputs (AAB, tests, Google Play).
+- [x] Start sheet (build / release / rehearsal / Play check), Setup page, sign-in page.
+- [x] Live "On Google Play" strip read with the console's key.
+- [x] Loading, empty, error, not-configured states; phone layout.
+- [x] Detector: no findings.
 
 ### Phase 4 — Docker deploy
 
-- [ ] Dockerfiles (API, web standalone), `docker-compose.yml`, `.env.example`, README.
-- [ ] Build and start on this machine; health check green.
+- [x] Non-root images with health checks; Play key as a read-only compose secret; logs rotated.
+- [x] `.env.example`, `scripts/deploy.sh` (up / push / server / check / logs / down, with a
+      preflight), README runbook for a server.
+- [x] Running here: http://127.0.0.1:7080 — both containers healthy; sign-in, session, live
+      Play read and Setup verified through the proxy.
+- [x] `ci_cd_app` is a git repository with one commit (`90d1221`); secrets, `.env` and
+      `.work/` are ignored (staged files scanned before committing).
 
-### Phase 5 — Live end-to-end run (needs you)
+### Phase 5 — Live end-to-end run
 
-- [ ] **You:** GitHub token + console password in `ci_cd_app/.env`.
-- [ ] **You:** confirm the push of the pipeline commit to the mobile repo's `main`.
-- [ ] **You:** Play service-account JSON uploaded on the Setup page (or as a GitHub secret).
-- [ ] Setup page all green.
-- [ ] "Check Play access" run: key valid, version codes per track read back.
+- [x] Google Play key verified live (tracks read; production "Second Release", code 9).
+- [x] Upload key and release path verified against Google Play (validate-only, above).
+- [ ] **You:** push `ci/release-pipeline` to the mobile repo's `main` (§4).
+- [ ] **You:** `GITHUB_TOKEN` in `ci_cd_app/.env`, then `./scripts/deploy.sh up` (§4).
+- [ ] Setup → copy the console key into the GitHub secret; Setup all green.
+- [ ] "Check Play access" run on GitHub Actions.
 - [ ] Build run: tests pass, signed AAB downloads from the console.
-- [ ] Release run to the **internal** track: Fastlane upload lands on Google Play.
+- [ ] Rehearsal release to internal, then a real release to internal.
 
 ### Phase 6 — Design finish
 
-- [ ] Desktop + phone screenshots, detector pass.
-- [ ] Finish review (fresh reviewer), fixes, verdict.
-- [ ] DESIGN.md + `.impeccable/design.json` from the shipped build.
+- [x] Desktop + phone screenshots of every state that renders without GitHub data.
+- [x] Finish review (fresh reviewer): disposition **fix**, 8 material fixes — all applied in one
+      batch, plus both "ceiling" raises (the ring in the run header, ship flags in the header).
+- [x] Second fix batch (warning words in ink, neutral rehearsal pill, sans sentence); reviewer's
+      verdict: **ship** — scoped to the fixes; run surfaces reviewed from source.
+- [x] DESIGN.md + `.impeccable/design.json` written from the shipped build by the documenter.
+- [x] Provenance scan: the UI ships no raster images (SVG only).
+- [ ] Capture the run surfaces on the first real run (they need GitHub data).
 
 ## 4. What only you can do
 
-1. Put `GITHUB_TOKEN` (fine-grained, mobile repo: Actions read/write, Contents read,
-   Secrets read/write) and `CONSOLE_PASSWORD` in `ci_cd_app/.env` — I never read credentials
-   from elsewhere on the machine.
-2. Say "push" for the pipeline commit to the mobile repo's `main` (GitHub only runs a
-   dispatched workflow that exists on the default branch).
-3. Upload the Play service-account JSON on the Setup page.
+1. **Push the pipeline** (the permission guard stopped me pushing to the org repo's `main`):
+   `git -C ~/StudioProjects/CRM/human-resource-management/human-resource-management-mobile-ess push origin ci/release-pipeline:main`
+   — or tell me to, explicitly.
+2. **GitHub token** into `ci_cd_app/.env` as `GITHUB_TOKEN` (fine-grained, mobile repo only:
+   Actions read/write, Contents read, Secrets read/write, Variables read). The SSH key you gave
+   works for git but cannot call the GitHub API.
+3. Confirm `internal` as the default track for `release:` commits (Bitrise used production).
+4. Where the console's own repository should live (it is a local git repo now), and which
+   server and hostname it goes on.
 
 ## 5. Known limits (POC)
 
 - GitHub publishes a job's full log when the job ends; while it runs the console shows live
   step states and links to GitHub's live log.
-- One shared console password; no per-user accounts or audit trail beyond GitHub's own.
+- One shared console password; no per-user accounts. GitHub records every run under the
+  token's owner.
 - The upload keystore is committed in the mobile repo (existing setup, kept as is). Anyone
   with read access to that repo can sign builds as you; moving it to secrets is a follow-up.
 - HRM `POST /mobile-release` still points at Bitrise; repointing or removing it is a follow-up.
+- The Play service-account key passed through a chat session: rotate it once live (README).

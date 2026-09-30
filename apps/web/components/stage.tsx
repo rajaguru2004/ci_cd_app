@@ -55,7 +55,7 @@ export const RUN_INK: Record<RunState, string> = {
   queued: 'text-muted',
   cancelled: 'text-muted',
   skipped: 'text-muted',
-  waiting: 'text-warn-ink',
+  waiting: 'text-body',
 };
 
 function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
