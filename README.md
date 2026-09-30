@@ -45,6 +45,7 @@ SHA into the ZIP), so it sits on that commit in the stream.
 | The same, on a ZIP of `main` plus the two fixes below (ZIP run #4, through the UI) | **every stage passed**: 323 tests and both checks; signed AAB 1.0.1 (1004), 80.2 MB, upload key SHA-1 `67:D7:42:…:3D:E0`; Google Play accepted the internal release, validate-only (nothing published). The AAB and R8 mapping download through the console; the AAB's SHA-256 matches build-info. First build 16.5 min: Gradle, the NDK and SDK packages download once |
 | Console reads of Google Play while that upload ran | none opened; the last snapshot was served (a read would have ended Fastlane's edit) |
 | Re-run and cancel from the UI | "Re-run this ZIP" started ZIP run #5 (same settings, version code 1005) and opened it; warm caches built the AAB in about 2 min (first build: 14.5). Cancel stopped a queued run before it started, and a running one inside Fastlane, leaving no process behind |
+| **Real release to the internal track** (ZIP run #7, `fix/main-test-gates` at `a2d8a3f`, through the UI) | Google Play has internal → "1.0.1" [1007], completed; production untouched (9). 4 min 22 s end to end on warm caches |
 | Upload limits through the web container | a 34 MB GitHub ZIP streams through; a 520 MB file gets 413 and leaves nothing on disk; a non-ZIP gets 400; signed out gets 401 |
 
 **Mobile `main` does not pass its own gates today (2026-09-30), on any machine** (reproduced

@@ -2,9 +2,9 @@
 
 Status: **Built, deployed on this machine, verified end to end on this server: a source ZIP
 uploaded in the console ran tests, built and signed the AAB, and passed Google Play's
-validation (rehearsal, nothing published).** The same run on GitHub Actions waits on your
-steps in §4. Opened 2026-09-29 19:33 IST; resumed 2026-09-30 12:07; last update 2026-09-30
-18:35.
+validation; then a real release put 1.0.1 (1007) on the internal testing track (18:41 IST).**
+The same run on GitHub Actions waits on your steps in §4. Opened 2026-09-29 19:33 IST;
+resumed 2026-09-30 12:07; last update 2026-09-30 18:45.
 
 Progress: 7 of 8 phases done (Phase 5's GitHub half waits on §4). Remaining after your
 steps: about 40 minutes (a Play-access check, a build, a rehearsal and a real internal
@@ -167,6 +167,8 @@ Found on the way (all fixed, with tests):
 - [x] Upload key and release path verified against Google Play (validate-only, above).
 - [x] The whole pipeline on this server from an uploaded ZIP (Phase 7): tests, signed AAB,
       Google Play validation.
+- [x] Real release to the internal track, on your go-ahead: 1.0.1 (1007), built from
+      `fix/main-test-gates` (`a2d8a3f`); Google Play lists it as completed.
 - [ ] **You:** push `ci/release-pipeline` to the mobile repo's `main` (§4).
 - [ ] **You:** `GITHUB_TOKEN` in `ci_cd_app/.env`, then `./scripts/deploy.sh up` (§4).
 - [ ] Setup → copy the console key into the GitHub secret; Setup all green.
@@ -188,24 +190,24 @@ Found on the way (all fixed, with tests):
 
 ## 4. What only you can do
 
-0. **The GitHub token in `.env` belongs to @rajaguru2004 and cannot see the org repo** (GitHub
-   answers 404). Make a fine-grained token with Resource owner `the-reciprocal-solutions` (an
-   org owner may have to approve it), repository `human-resource-management-mobile-ess`, and
-   the permissions below. ZIP builds work without it.
-0. **Mobile `main` fails its own gates today**: 32 smoke tests (a 0.25 px overflow in the
-   dashboard's week row on dates like "Wed 30") and the widget-key ratchet (26 < baseline 27).
-   Both fixes are on the local branch `fix/main-test-gates` of the mobile clone (`0b0af6e`,
-   `a2d8a3f`), verified on this server; push or cherry-pick them.
-
-1. **Push the pipeline** (the permission guard stopped me pushing to the org repo's `main`):
+1. **Push the two fixes for mobile `main`.** `main` fails its own gates today: 32 smoke tests
+   (a 0.25 px overflow in the dashboard's week row on dates like "Wed 30") and the widget-key
+   ratchet (26, below the baseline of 27). Both fixes are on the local branch
+   `fix/main-test-gates` of the mobile clone (`0b0af6e`, `a2d8a3f`), verified on this server.
+   The internal release of 2026-09-30 was built from `a2d8a3f`.
+2. **Push the pipeline** (the permission guard stopped me pushing to the org repo's `main`):
    `git -C ~/StudioProjects/CRM/human-resource-management/human-resource-management-mobile-ess push origin ci/release-pipeline:main`
-   — or tell me to, explicitly.
-2. **GitHub token** into `ci_cd_app/.env` as `GITHUB_TOKEN` (fine-grained, mobile repo only:
-   Actions read/write, Contents read, Secrets read/write, Variables read). The SSH key you gave
-   works for git but cannot call the GitHub API.
-3. Confirm `internal` as the default track for `release:` commits (Bitrise used production).
-4. Where the console's own repository should live (it is a local git repo now), and which
+   (commit `b909d28`), or tell me to, explicitly.
+3. **A GitHub token that can see the org repo.** The one in `.env` belongs to @rajaguru2004,
+   and GitHub hides the repo from it (404). Fine-grained, Resource owner
+   `the-reciprocal-solutions` (an org owner may have to approve it), repository
+   `human-resource-management-mobile-ess` only: Actions read/write, Contents read, Secrets
+   read/write, Variables read. ZIP builds work without it.
+4. Confirm `internal` as the default track for `release:` commits (Bitrise used production).
+5. Where the console's own repository should live (it is a local git repo now), and which
    server and hostname it goes on.
+6. Internal testers: Play Console → Testing → Internal testing → Testers (an email list), then
+   share the opt-in link.
 
 ## 5. Known limits (POC)
 
