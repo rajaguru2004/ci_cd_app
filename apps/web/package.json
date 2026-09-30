@@ -1,0 +1,29 @@
+{
+  "name": "mobile-ci-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pipeline console UI for the FusionHRM Android release pipeline.",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource-variable/montserrat": "^5.2.8",
+    "clsx": "^2.1.1",
+    "geist": "1.7.2",
+    "lucide-react": "^0.562.0",
+    "next": "16.1.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^20.19.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.7.3"
+  }
+}

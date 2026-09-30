@@ -1,0 +1,26 @@
+# Dependencies and builds
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+
+# Secrets: never committed. The Play key lives in secrets/, credentials in .env.
+.env
+.env.*
+!.env.example
+secrets/
+*.json.key
+pc-api-*.json
+
+# Local work: mobile repo worktrees, rehearsal uploads, bundles
+.work/
+*.aab
+*.apk
+
+# Screenshots from design review
+.impeccable/review/
+
+# Editors and OS
+.DS_Store
+.idea/
+*.log

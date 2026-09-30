@@ -1,0 +1,3 @@
+# The Google Play service-account key never lives in this repository: CI passes it in from the
+# PLAY_SERVICE_ACCOUNT_JSON secret (json_key_data in the Fastfile).
+package_name('com.fusionapps.fusionhrm')

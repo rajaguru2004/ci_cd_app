@@ -1,0 +1,311 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import clsx from 'clsx';
+import { ChevronRight, Download, ExternalLink, Search } from 'lucide-react';
+import { api, ApiError } from '@/lib/api';
+import { duration, since } from '@/lib/format';
+import { LogLine, parseLog, splitByStep } from '@/lib/log';
+import type { JobView, LogResponse, StageView, StepView } from '@/lib/types';
+import { StateGlyph } from './stage';
+
+/** Finished job logs never change: keep them for the life of the page. */
+const LOGS = new Map<number, string>();
+
+const CHUNK = 250;
+
+function Lines({ lines, query }: { lines: LogLine[]; query: string }) {
+  const [open, setOpen] = useState<Set<number>>(() => new Set());
+  const q = query.trim().toLowerCase();
+  const visible = useMemo<Array<LogLine & { fold?: number }>>(() => {
+    if (q) return lines.filter((l) => l.kind !== 'endgroup' && l.text.toLowerCase().includes(q));
+    // A `##[group]` line folds everything up to its `##[endgroup]` (the command echo, the
+    // environment), as GitHub's own viewer does.
+    const out: Array<LogLine & { fold?: number }> = [];
+    let folding: number | null = null;
+    for (const l of lines) {
+      if (l.kind === 'group') {
+        folding = l.n;
+        out.push({ ...l, fold: l.n });
+        continue;
+      }
+      if (l.kind === 'endgroup') {
+        folding = null;
+        continue;
+      }
+      if (folding !== null && !open.has(folding)) continue;
+      out.push(l);
+    }
+    return out;
+  }, [lines, q, open]);
+
+  if (!visible.length) {
+    return <p className="px-4 py-3 font-mono text-[12px] text-log-muted">{q ? 'No line matches.' : 'This step printed nothing.'}</p>;
+  }
+  const chunks: Array<typeof visible> = [];
+  for (let i = 0; i < visible.length; i += CHUNK) chunks.push(visible.slice(i, i + CHUNK));
+
+  return (
+    <div className="py-1 font-mono text-[12.5px] leading-[1.6]">
+      {chunks.map((chunk, ci) => (
+        <div key={ci} className="log-chunk">
+          {chunk.map((l) => {
+            const fold = l.fold;
+            return (
+              <div
+                key={l.n}
+                className={clsx(
+                  'grid grid-cols-[3.5rem_minmax(0,1fr)] gap-3 px-2 hover:bg-log-raised',
+                  l.kind === 'error' && 'bg-[#2a1317] text-log-error',
+                  l.kind === 'warning' && 'bg-[#2a2210] text-log-warn',
+                  l.kind === 'command' && 'text-log-group',
+                  l.kind === 'debug' && 'text-log-muted',
+                  l.kind === 'plain' && 'text-log-text',
+                  l.kind === 'notice' && 'text-log-group',
+                  l.kind === 'group' && 'text-log-group',
+                )}
+              >
+                <span className="select-none text-end text-log-muted tabular">{l.n}</span>
+                {fold !== undefined ? (
+                  <button
+                    type="button"
+                    className="flex min-w-0 items-center gap-1 text-start"
+                    aria-expanded={open.has(fold)}
+                    onClick={() =>
+                      setOpen((s) => {
+                        const next = new Set(s);
+                        if (next.has(fold)) next.delete(fold);
+                        else next.add(fold);
+                        return next;
+                      })
+                    }
+                  >
+                    <ChevronRight size={12} aria-hidden className={clsx('shrink-0 transition-transform', open.has(fold) && 'rotate-90')} />
+                    <span className="whitespace-pre-wrap break-words">{l.text}</span>
+                  </button>
+                ) : (
+                  <span className="whitespace-pre-wrap break-words">{l.kind === 'error' ? `Error: ${l.text}` : l.kind === 'warning' ? `Warning: ${l.text}` : l.text || ' '}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function LogPane({
+  runId,
+  stage,
+  jobs,
+  now,
+  focusStep,
+}: {
+  runId: number;
+  stage: StageView;
+  jobs: JobView[];
+  now: number;
+  /** Step number to open first (the failing one), when the parent knows it. */
+  focusStep: number | null;
+}) {
+  const stageJobs = jobs.filter((j) => stage.jobIds.includes(j.id));
+  const preferred =
+    stageJobs.find((j) => stage.steps.some((s) => s.jobId === j.id && s.state === 'failed')) ??
+    stageJobs.find((j) => j.state === 'running') ??
+    stageJobs[stageJobs.length - 1];
+  const [jobId, setJobId] = useState<number | null>(preferred?.id ?? null);
+  const job = stageJobs.find((j) => j.id === jobId) ?? preferred ?? null;
+  const [text, setText] = useState<string | null>(job ? (LOGS.get(job.id) ?? null) : null);
+  const [note, setNote] = useState<{ reason: string; liveUrl?: string } | null>(null);
+  const [query, setQuery] = useState('');
+  const [raw, setRaw] = useState(false);
+
+  useEffect(() => {
+    setJobId(preferred?.id ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage.key, runId]);
+
+  const finished = Boolean(job?.completedAt) && job?.state !== 'running' && job?.state !== 'queued';
+
+  useEffect(() => {
+    let cancelled = false;
+    setNote(null);
+    if (!job) return;
+    const cached = LOGS.get(job.id);
+    if (cached !== undefined) {
+      setText(cached);
+      return;
+    }
+    setText(null);
+    if (!finished) {
+      setNote({ reason: 'GitHub publishes the full log when this job finishes. The steps update live.', liveUrl: job.url });
+      return;
+    }
+    api<LogResponse>(`/runs/${runId}/jobs/${job.id}/log`)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.available) {
+          LOGS.set(job.id, res.text);
+          setText(res.text);
+        } else {
+          setNote({ reason: res.reason, liveUrl: res.liveUrl });
+        }
+      })
+      .catch((e: unknown) => !cancelled && setNote({ reason: e instanceof ApiError ? e.message : 'The log could not be loaded.' }));
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id, finished, runId, job]);
+
+  const lines = useMemo(() => (text ? parseLog(text) : []), [text]);
+  const byStep = useMemo(
+    () => (job && lines.length ? splitByStep(lines, job.steps) : new Map<number, LogLine[]>()),
+    [lines, job],
+  );
+  const steps = stage.steps.filter((s) => s.jobId === job?.id);
+
+  const initial = useMemo(() => {
+    const failed = steps.find((s) => s.state === 'failed');
+    if (focusStep && steps.some((s) => s.number === focusStep)) return focusStep;
+    return (failed ?? steps.find((s) => s.state === 'running') ?? steps[steps.length - 1])?.number ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, stage.key, focusStep]);
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set(initial ? [initial] : []));
+  useEffect(() => {
+    setExpanded(new Set(initial ? [initial] : []));
+  }, [initial]);
+
+  function download() {
+    if (!text || !job) return;
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `run-${runId}-${job.name.replace(/\W+/g, '-').toLowerCase()}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (!job) {
+    return (
+      <div className="rounded-[var(--radius-card)] bg-log px-5 py-6 text-[13px] text-log-muted">
+        {stage.state === 'skipped'
+          ? `${stage.label} is not part of this run.`
+          : `${stage.label} has not started; its steps appear here when GitHub starts the job.`}
+      </div>
+    );
+  }
+
+  return (
+    <section aria-label={`${stage.label} log`} className="overflow-hidden rounded-[var(--radius-card)] bg-log text-log-text shadow-panel">
+      <div className="flex flex-wrap items-center gap-2 border-b border-log-line bg-log-raised px-3 py-2">
+        {stageJobs.length > 1 ? (
+          <div className="flex gap-1" role="tablist" aria-label="Jobs in this stage">
+            {stageJobs.map((j) => (
+              <button
+                key={j.id}
+                type="button"
+                role="tab"
+                aria-selected={j.id === job.id}
+                onClick={() => setJobId(j.id)}
+                className={clsx(
+                  'flex h-9 items-center gap-2 rounded-md px-3 text-[13px] font-medium transition-colors',
+                  j.id === job.id ? 'bg-log text-white' : 'text-log-muted hover:text-white',
+                )}
+              >
+                <StateGlyph state={j.state} size={14} />
+                {j.name}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className="flex h-9 items-center gap-2 px-1 text-[13px] font-semibold text-white">
+            <StateGlyph state={job.state} size={14} />
+            {job.name}
+          </span>
+        )}
+        <div className="ms-auto flex items-center gap-1">
+          {text && (
+            <>
+              <label className="relative flex items-center">
+                <span className="sr-only">Filter log lines</span>
+                <Search size={14} aria-hidden className="pointer-events-none absolute start-2.5 text-log-muted" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Filter lines"
+                  className="h-9 w-40 rounded-md border border-log-line bg-log ps-8 pe-2 text-log-text placeholder:text-log-muted focus:border-run focus:outline-none md:w-52 md:text-[13px]!"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setRaw((r) => !r)}
+                aria-pressed={raw}
+                className={clsx('h-9 rounded-md px-3 text-[13px] font-medium transition-colors', raw ? 'bg-log text-white' : 'text-log-muted hover:text-white')}
+              >
+                Whole job
+              </button>
+              <button type="button" onClick={download} className="flex h-9 w-9 items-center justify-center rounded-md text-log-muted hover:text-white" aria-label="Download this job's log" title="Download log">
+                <Download size={15} aria-hidden />
+              </button>
+            </>
+          )}
+          <a href={job.url} target="_blank" rel="noreferrer" className="flex h-9 items-center gap-1.5 rounded-md px-2 text-[13px] text-log-muted hover:text-white">
+            GitHub
+            <ExternalLink size={13} aria-hidden />
+          </a>
+        </div>
+      </div>
+
+      {note && (
+        <p className="border-b border-log-line px-4 py-3 text-[13px] text-log-muted">
+          {note.reason}{' '}
+          {note.liveUrl && (
+            <a href={note.liveUrl} target="_blank" rel="noreferrer" className="font-medium text-log-group underline">
+              Watch it live on GitHub
+            </a>
+          )}
+        </p>
+      )}
+
+      <div className="log-scroll max-h-[min(70svh,720px)] overflow-y-auto">
+        {raw && text ? (
+          <Lines lines={lines} query={query} />
+        ) : (
+          <ul>
+            {steps.map((s: StepView) => {
+              const isOpen = expanded.has(s.number) || Boolean(query.trim());
+              const stepLines = byStep.get(s.number) ?? [];
+              const live = s.state === 'running' ? since(s.startedAt, now) : s.durationMs;
+              return (
+                <li key={`${s.jobId}-${s.number}`} className="border-b border-log-line last:border-b-0">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpanded((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(s.number)) next.delete(s.number);
+                        else next.add(s.number);
+                        return next;
+                      })
+                    }
+                    aria-expanded={isOpen}
+                    className="flex min-h-11 w-full items-center gap-3 px-3 text-start hover:bg-log-raised"
+                  >
+                    <ChevronRight size={14} aria-hidden className={clsx('shrink-0 text-log-muted transition-transform', isOpen && 'rotate-90')} />
+                    <StateGlyph state={s.state} size={15} />
+                    <span className={clsx('min-w-0 flex-1 truncate text-[13px]', s.state === 'failed' ? 'font-semibold text-log-error' : 'text-log-text')}>{s.name}</span>
+                    <span className="shrink-0 font-mono text-[12px] text-log-muted tabular">{duration(live)}</span>
+                  </button>
+                  {isOpen && text && <Lines lines={stepLines} query={query} />}
+                  {isOpen && !text && !note && <p className="px-4 pb-3 font-mono text-[12px] text-log-muted">Loading log…</p>}
+                </li>
+              );
+            })}
+            {steps.length === 0 && <li className="px-4 py-4 text-[13px] text-log-muted">GitHub has not reported this job&apos;s steps yet.</li>}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}

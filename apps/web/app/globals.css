@@ -1,0 +1,331 @@
+@import "tailwindcss";
+
+/*
+ * The Fusion HRM default preset ("Ocean Blue", apps/frontend/DESIGN.md in the HRM repo),
+ * carried into the pipeline console so it reads as part of the same toolset.
+ * Two deliberate departures, both for contrast on this console's surfaces:
+ *   muted text  #64748B → #5B6679  (HRM's is 4.40:1 on the tinted page; this is 5.37:1)
+ *   orange text #CC5200 → #B34700  (4.40:1 → 5.50:1 on white)
+ * Status hues draw glyphs and arcs; words in a status colour use the darker *-ink tone.
+ */
+@theme {
+  --color-page: #f4f6fc;
+  --color-card: #ffffff;
+  --color-line: #e2e8f0;
+  --color-line-soft: #f1f5f9;
+  --color-ink: #0f172a;
+  --color-body: #334155;
+  --color-muted: #5b6679;
+  --color-faint: #94a3b8;
+
+  --color-brand: #00358f;
+  --color-brand-dark: #002570;
+  --color-brand-wash: #eef3fc;
+  --color-brand-light: #aeccff;
+
+  /* Signal Orange: held back for the moments that ship — release commits, tags, Play tracks. */
+  --color-ship: #f66600;
+  --color-ship-ink: #b34700;
+  --color-ship-wash: #fff1e5;
+
+  --color-ok: #10b981;
+  --color-ok-ink: #047857;
+  --color-ok-wash: #ecfdf5;
+  --color-fail: #ef4444;
+  --color-fail-ink: #b91c1c;
+  --color-fail-wash: #fef2f2;
+  --color-run: #3b82f6;
+  --color-run-ink: #1d4ed8;
+  --color-run-wash: #eff6ff;
+  --color-warn: #f59e0b;
+  --color-warn-ink: #b45309;
+  --color-warn-wash: #fffbeb;
+  --color-idle: #cbd5e1;
+
+  --color-log: #0b1220;
+  --color-log-raised: #111a2e;
+  --color-log-line: #1e293b;
+  --color-log-text: #d6deeb;
+  --color-log-muted: #8391a8;
+  --color-log-error: #fca5a5;
+  --color-log-warn: #fcd34d;
+  --color-log-group: #93c5fd;
+
+  --font-sans: "Montserrat Variable", "Montserrat", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-panel: 20px;
+
+  --shadow-panel: 0 1px 3px rgb(16 24 40 / 0.04), 0 4px 16px -4px rgb(16 24 40 / 0.05);
+  --shadow-overlay: 0 24px 64px -12px rgb(15 23 42 / 0.28), 0 8px 24px -8px rgb(15 23 42 / 0.12);
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-page);
+    color: var(--color-body);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.43;
+    font-feature-settings: "tnum" 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Browser surfaces carry the palette too. */
+  ::selection {
+    background: var(--color-brand-light);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  input,
+  textarea,
+  select {
+    caret-color: var(--color-brand);
+    font-size: 16px; /* never below 16px: phones zoom the page otherwise */
+  }
+
+  a {
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-idle) transparent;
+  }
+
+  .log-scroll {
+    scrollbar-color: #334155 transparent;
+  }
+}
+
+@layer components {
+  .panel {
+    background: var(--color-card);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-panel);
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 16px;
+    border-radius: var(--radius-control);
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background-color 160ms var(--ease-out-expo), border-color 160ms var(--ease-out-expo),
+      color 160ms var(--ease-out-expo), transform 120ms var(--ease-out-expo);
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--color-brand);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-brand-dark);
+  }
+  .btn-secondary {
+    background: var(--color-card);
+    color: var(--color-body);
+    border: 1px solid var(--color-line);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--color-brand-wash);
+    border-color: color-mix(in srgb, var(--color-brand) 30%, var(--color-line));
+    color: var(--color-brand);
+  }
+  .btn-quiet {
+    height: 36px;
+    padding: 0 10px;
+    color: var(--color-muted);
+    font-weight: 500;
+  }
+  .btn-quiet:hover:not(:disabled) {
+    background: var(--color-line-soft);
+    color: var(--color-ink);
+  }
+
+  .field {
+    width: 100%;
+    height: 48px;
+    padding: 0 12px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-control);
+    background: var(--color-card);
+    color: var(--color-ink);
+    transition: border-color 160ms var(--ease-out-expo), box-shadow 160ms var(--ease-out-expo);
+  }
+  textarea.field {
+    height: auto;
+    min-height: 112px;
+    padding: 10px 12px;
+    line-height: 1.5;
+    resize: vertical;
+  }
+  .field::placeholder {
+    color: var(--color-muted);
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--color-brand);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand) 18%, transparent);
+  }
+  .field[aria-invalid="true"] {
+    border-color: var(--color-fail);
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--color-ink);
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .hint {
+    margin-top: 6px;
+    color: var(--color-muted);
+    font-size: 12px;
+  }
+
+  /* Segmented choice: a tinted track, the chosen option lifts to white. */
+  .seg {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: var(--radius-card);
+    background: var(--color-page);
+    border: 1px solid var(--color-line-soft);
+  }
+  .seg > label {
+    flex: 1 1 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 44px;
+    padding: 6px 12px;
+    border-radius: var(--radius-control);
+    color: var(--color-muted);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 160ms var(--ease-out-expo), color 160ms var(--ease-out-expo),
+      box-shadow 160ms var(--ease-out-expo);
+  }
+  .seg > label:hover {
+    color: var(--color-ink);
+  }
+  .seg > label:has(input:checked) {
+    background: var(--color-card);
+    color: var(--color-ink);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.08), 0 0 0 1px var(--color-line);
+  }
+  .seg > label:has(input:focus-visible) {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 1px;
+  }
+  .seg input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+/*
+ * The one moving thing: a highlight travelling the length of a running stage's arc.
+ * The arc path declares pathLength="100", so the numbers are percentages of its length.
+ */
+@keyframes arc-sweep {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: -36;
+  }
+}
+.arc-sweep {
+  stroke-dasharray: 36 100;
+  animation: arc-sweep 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+.sheet-in {
+  animation: sheet-in 200ms var(--ease-out-expo);
+}
+.scrim-in {
+  animation: scrim-in 200ms var(--ease-out-expo);
+}
+
+@keyframes strip-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+.fill-in {
+  transform-origin: left center;
+  animation: strip-fill 200ms var(--ease-out-expo);
+}
+[dir="rtl"] .fill-in {
+  transform-origin: right center;
+}
+
+/* Long logs stay fast: off-screen chunks are not laid out until they scroll into view. */
+.log-chunk {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 4000px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arc-sweep {
+    animation: none;
+    stroke-dasharray: none;
+  }
+  .sheet-in,
+  .scrim-in,
+  .fill-in {
+    animation: none;
+  }
+}

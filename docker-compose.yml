@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FusionHRM mobile pipeline console
+#
+#   web  Next.js UI on ${CONSOLE_PORT:-7080}; proxies /api/* to the api service
+#   api  NestJS; talks to GitHub Actions (GITHUB_TOKEN) and Google Play (the key
+#        mounted below as a read-only secret)
+#
+# No database: every build state is read from GitHub for that run.
+#
+#   ./scripts/deploy.sh up        build and start on this machine
+#   ./scripts/deploy.sh push      build and push images for a server
+#   ./scripts/deploy.sh server    on a server: pull images and restart
+# See README.md.
+# ─────────────────────────────────────────────────────────────────────────────
+name: mobile-ci
+
+services:
+  api:
+    build:
+      context: ./apps/api
+    image: ${IMAGE_PREFIX:-rajaguru2004/fusionhrm-mobile-ci}-api:${IMAGE_TAG:-latest}
+    container_name: mobile_ci_api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "3001"
+      PLAY_SERVICE_ACCOUNT_FILE: /run/secrets/play-service-account.json
+    secrets:
+      # Mounted read-only at /run/secrets/<target>.
+      - source: play-service-account
+        target: play-service-account.json
+    # Only the web container talks to the API; it is not published on the host.
+    expose:
+      - "3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    networks:
+      - mobile_ci
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        API_INTERNAL_URL: http://api:3001
+    image: ${IMAGE_PREFIX:-rajaguru2004/fusionhrm-mobile-ci}-web:${IMAGE_TAG:-latest}
+    container_name: mobile_ci_web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${CONSOLE_BIND:-0.0.0.0}:${CONSOLE_PORT:-7080}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    networks:
+      - mobile_ci
+
+secrets:
+  # Google Play service-account JSON. Keep it out of git (secrets/ is ignored) and
+  # readable by uid 1000, the `node` user inside the container.
+  play-service-account:
+    file: ${PLAY_KEY_FILE:-./secrets/play-service-account.json}
+
+networks:
+  mobile_ci: {}

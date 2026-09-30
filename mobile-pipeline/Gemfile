@@ -1,0 +1,6 @@
+source 'https://rubygems.org'
+
+# Google Play release automation (fastlane/Fastfile). CI installs it through
+# ruby/setup-ruby's bundler cache (.github/workflows/release.yml); locally:
+#   bundle install && bundle exec fastlane lanes
+gem 'fastlane', '>= 2.228'
