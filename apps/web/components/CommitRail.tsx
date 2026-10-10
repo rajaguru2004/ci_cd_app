@@ -3,35 +3,26 @@
 import Link from 'next/link';
 import clsx from 'clsx';
 import { GitBranch, RefreshCw, Tag, TriangleAlert } from 'lucide-react';
-import { ago, runLabel, short } from '@/lib/format';
+import { ago, runLabel, runSource, short } from '@/lib/format';
 import type { RunSummary, StreamCommit, StreamResponse } from '@/lib/types';
 import { RUN_INK, RUN_WORD, StageRing, ringLabel, shipped } from './stage';
 
 function runName(run: RunSummary): string {
   if (run.mode === 'release') return `${run.rehearsal ? 'Rehearsal' : 'Release'}${run.track ? ` → ${run.track}` : ''}`;
-  if (run.mode === 'validate') return 'Play check';
-  if (run.mode === 'build') return 'Build';
-  return 'Run';
+  return 'Build';
 }
 
-function Flags({ commit }: { commit: StreamCommit }) {
-  if (!commit.tags.length && !commit.release) return null;
+/** Git tags on the commit: markers the team set, shown as they are (a tag starts nothing here). */
+function Tags({ commit }: { commit: StreamCommit }) {
+  if (!commit.tags.length) return null;
   return (
     <span className="mt-1.5 flex flex-wrap gap-1.5">
       {commit.tags.map((t) => (
-        <span
-          key={t}
-          className="inline-flex h-5 items-center gap-1 rounded-full border border-ship/40 bg-ship-wash px-2 font-mono text-[11px] font-medium text-ship-ink"
-        >
+        <span key={t} className="inline-flex h-5 items-center gap-1 rounded-full border border-line px-2 font-mono text-[11px] font-medium text-body">
           <Tag size={11} aria-hidden />
           {t}
         </span>
       ))}
-      {commit.release && (
-        <span className="inline-flex h-5 items-center rounded-full bg-ship-wash px-2 text-[11px] font-semibold text-ship-ink">
-          release{commit.release.track ? ` → ${commit.release.track}` : ''}
-        </span>
-      )}
     </span>
   );
 }
@@ -40,8 +31,6 @@ export function CommitRail({
   stream,
   error,
   loading,
-  empty,
-  branches,
   selectedSha,
   selectedRunId,
   onBranch,
@@ -53,9 +42,6 @@ export function CommitRail({
   stream: StreamResponse | null;
   error: string | null;
   loading: boolean;
-  /** Shown in place of the stream when there is nothing to list yet (e.g. no GitHub token). */
-  empty?: React.ReactNode;
-  branches: string[];
   selectedSha: string | null;
   selectedRunId: number | null;
   onBranch: (b: string) => void;
@@ -64,7 +50,9 @@ export function CommitRail({
   onRefresh: () => void;
   now: number;
 }) {
-  const branch = stream?.branch ?? branches[0] ?? 'main';
+  const branch = stream?.branch ?? 'main';
+  const branches = stream?.branches.length ? stream.branches : [branch];
+  const host = stream?.app.repo?.host ?? 'the repository';
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-line px-4 py-3">
@@ -76,7 +64,7 @@ export function CommitRail({
             value={branch}
             onChange={(e) => onBranch(e.target.value)}
           >
-            {(branches.length ? branches : [branch]).map((b) => (
+            {branches.map((b) => (
               <option key={b} value={b}>
                 {b}
               </option>
@@ -88,22 +76,27 @@ export function CommitRail({
           className="btn btn-quiet h-11 w-11 p-0"
           onClick={onRefresh}
           aria-label="Refresh"
-          title={stream ? `Updated ${ago(stream.refreshedAt, now)}` : 'Refresh'}
+          title={stream?.fetchedAt ? `Pulled ${ago(stream.fetchedAt, now)}` : 'Pull now'}
         >
           <RefreshCw size={16} aria-hidden className={loading ? 'animate-spin' : undefined} />
         </button>
       </div>
 
-      {stream && !stream.workflow.present && (
+      {stream?.error && (
         <div className="mx-4 mt-3 flex gap-3 rounded-[var(--radius-card)] bg-warn-wash px-4 py-3 text-[13px] text-ink">
           <TriangleAlert size={16} aria-hidden className="mt-0.5 shrink-0" color="var(--color-warn)" />
-          <p>
-            {stream.workflow.file} is not on {stream.repo.defaultBranch} yet, so no pipeline has run.{' '}
-            <Link href="/setup" className="font-semibold text-brand underline">
-              Open Setup
+          <p className="min-w-0">
+            <span className="font-semibold">Cannot pull from {host}.</span> {stream.error}{' '}
+            <Link href={`/apps/${stream.app.id}/settings`} className="font-semibold text-brand underline">
+              Settings
             </Link>
           </p>
         </div>
+      )}
+      {stream?.fetching && (
+        <p className="mx-4 mt-3 rounded-[var(--radius-card)] bg-run-wash px-4 py-3 text-[13px] text-run-ink">
+          Pulling the repository from {host}; the first pull of a large repository takes a minute.
+        </p>
       )}
 
       {error && (
@@ -113,8 +106,7 @@ export function CommitRail({
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-6">
-        {!stream && empty}
-        {!stream && !empty && loading && <RailSkeleton />}
+        {!stream && loading && <RailSkeleton />}
         {stream && (
           <ol className="relative py-2" aria-label={`Commits on ${stream.branch}`}>
             {stream.commits.map((c, i) => {
@@ -133,7 +125,7 @@ export function CommitRail({
                     onClick={() => onSelectCommit(c)}
                     aria-current={active ? 'true' : undefined}
                     className={clsx(
-                      'relative grid w-full grid-cols-[36px_minmax(0,1fr)] gap-3 px-4 py-3 text-start transition-colors duration-150',
+                      'relative grid w-full grid-cols-[36px_minmax(0,1fr)] gap-3 px-4 py-3 text-start transition-colors',
                       active ? 'bg-brand-wash' : 'hover:bg-line-soft/70',
                     )}
                   >
@@ -157,11 +149,11 @@ export function CommitRail({
                       <span className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[12px] text-muted">
                         <span className="font-mono">{short(c.sha)}</span>
                         <span aria-hidden>·</span>
-                        <span className="truncate">{c.author.login ?? c.author.name}</span>
+                        <span className="truncate">{c.author.name}</span>
                         <span aria-hidden>·</span>
                         <time dateTime={c.date}>{ago(c.date, now)}</time>
                       </span>
-                      <Flags commit={c} />
+                      <Tags commit={c} />
                       {run && (
                         <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[12px]">
                           {c.runs.slice(0, 3).map((r) => (
@@ -183,14 +175,14 @@ export function CommitRail({
           </ol>
         )}
 
-        {stream && stream.commits.length === 0 && (
+        {stream && stream.commits.length === 0 && !stream.fetching && !stream.error && (
           <p className="px-6 py-10 text-center text-muted">No commits on {stream.branch}.</p>
         )}
 
         {stream && stream.otherRuns.length > 0 && (
           <section aria-labelledby="elsewhere" className="mx-4 mt-4 border-t border-line pt-4">
             <h2 id="elsewhere" className="px-1 text-[13px] font-semibold text-ink">
-              Runs on other branches and older commits
+              {stream.commits.length ? 'Runs on other branches, older commits and ZIPs' : 'Runs'}
             </h2>
             <ul className="mt-2 space-y-1">
               {stream.otherRuns.map((r) => (
@@ -210,13 +202,9 @@ export function CommitRail({
                         {runLabel(r)} {runName(r)}
                       </span>
                       <span className="block truncate text-[12px] text-muted">
-                        {r.branch ?? 'unknown ref'}
-                        {r.sha && (
-                          <>
-                            {' · '}
-                            <span className="font-mono">{short(r.sha)}</span>
-                          </>
-                        )}
+                        <span className="font-mono">{runSource(r)}</span>
+                        {' · '}
+                        <span className={RUN_INK[r.state]}>{RUN_WORD[r.state].toLowerCase()}</span>
                         {' · '}
                         {ago(r.createdAt, now)}
                       </span>

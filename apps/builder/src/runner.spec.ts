@@ -1,11 +1,10 @@
 import { promises as fs } from 'fs';
-import { tmpdir } from 'os';
 import { join } from 'path';
-import { readConfig } from './config';
-import type { JobDef } from './pipeline';
+import type { JobDef, Services } from './pipeline';
 import { Runner } from './runner';
 import { RunStore } from './store';
-import type { RunParams, RunRecord } from './types';
+import { tempConfig } from './testing';
+import type { RunApp, RunParams, RunRecord } from './types';
 
 /**
  * The engine with a pipeline of plain shell commands (no Flutter), checking the states it
@@ -13,23 +12,27 @@ import type { RunParams, RunRecord } from './types';
  */
 
 const params: RunParams = { mode: 'build', track: 'internal', releaseNotes: '', releaseStatus: 'completed', versionName: '', versionCode: 7, rehearsal: false };
+const app: RunApp = { id: 'demo', name: 'Demo', packageName: 'com.example.demo', signing: 'repository', projectPath: '' };
+const services = {} as Services;
 
 async function setup(pipeline: JobDef[]) {
-  const data = await fs.mkdtemp(join(tmpdir(), 'runner-'));
+  const cfg = await tempConfig();
+  const data = cfg.dataDir;
   const uploads = join(data, 'uploads');
   await fs.mkdir(uploads, { recursive: true });
   await fs.writeFile(join(uploads, 'u.zip'), 'zip');
-  const cfg = readConfig({ BUILDER_TOKEN: 't'.repeat(32), DATA_DIR: data });
   const store = new RunStore(join(data, 'runs'));
   await store.init();
-  const runner = new Runner(cfg, store, () => pipeline, uploads);
+  const runner = new Runner(cfg, store, () => pipeline, uploads, services);
+  let number = 0;
   // The engine runs steps in the project folder; give these runs one.
   const start = async () => {
-    const run = await runner.create({ upload: 'u.zip', fileName: 'src.zip', sizeBytes: 3, uploadedBy: 'test', params });
+    number += 1;
+    const run = await runner.create({ app, number, source: { kind: 'zip', upload: 'u.zip', fileName: 'src.zip', sizeBytes: 3 }, startedBy: 'test', params });
     await fs.mkdir(join(store.dir(run.id), 'src'), { recursive: true });
     return run;
   };
-  return { runner, store, data, start };
+  return { runner, store, data, start, cfg };
 }
 
 const job = (key: string, needs: string[], steps: JobDef['steps']): JobDef => ({ key, name: key, needs, timeoutMin: 1, steps });
@@ -118,17 +121,40 @@ describe('Runner', () => {
   });
 
   it('marks a run the builder was killed in as failed on restart, and resumes queued ones', async () => {
-    const { store, data } = await setup([]);
-    const cfg = readConfig({ BUILDER_TOKEN: 't'.repeat(32), DATA_DIR: data });
-    const base = { createdAt: 'x', updatedAt: 'x', completedAt: null, params, plan: null, error: null, source: { fileName: 'a.zip', upload: 'u.zip', sizeBytes: 1, sha: null, root: null, uploadedBy: 't', rerunOf: null } };
+    const { store, data, cfg } = await setup([]);
+    const base = { app, number: 1, createdAt: 'x', updatedAt: 'x', completedAt: null, params, plan: null, error: null, runner: 'server' as const, remote: null, source: { kind: 'zip' as const, fileName: 'a.zip', upload: 'u.zip', sizeBytes: 1, sha: null, root: null, commit: null, startedBy: 't', rerunOf: null } };
     await store.save({ ...base, id: 1, status: 'in_progress', conclusion: null, startedAt: 'x', jobs: [{ id: 1, name: 'Tests', status: 'in_progress', conclusion: null, started_at: 'x', completed_at: null, steps: [{ name: 'Unit and widget tests', number: 1, status: 'in_progress', conclusion: null, started_at: 'x', completed_at: null }] }] });
     await store.save({ ...base, id: 2, status: 'queued', conclusion: null, startedAt: null, jobs: [{ id: 1, name: 'Tests', status: 'queued', conclusion: null, started_at: null, completed_at: null, steps: [{ name: 'Unit and widget tests', number: 1, status: 'queued', conclusion: null, started_at: null, completed_at: null }] }] });
     await fs.mkdir(join(store.dir(2), 'src'), { recursive: true });
-    const runner = new Runner(cfg, store, () => [job('Tests', [], [shStep('Unit and widget tests', 'echo resumed')])], join(data, 'uploads'));
+    const runner = new Runner(cfg, store, () => [job('Tests', [], [shStep('Unit and widget tests', 'echo resumed')])], join(data, 'uploads'), services);
     await runner.recover();
     await runner.drain();
     expect(await store.get(1)).toMatchObject({ status: 'completed', conclusion: 'failure', error: expect.stringContaining('restarted') });
     expect((await store.get(2))!.conclusion).toBe('success');
+  });
+
+  it('reads runs recorded before apps existed as ZIP runs of no app, numbered by their id', async () => {
+    const { store } = await setup([]);
+    await fs.mkdir(store.dir(7), { recursive: true });
+    await fs.writeFile(
+      join(store.dir(7), 'run.json'),
+      JSON.stringify({ id: 7, status: 'completed', conclusion: 'success', createdAt: 'x', startedAt: 'x', updatedAt: 'x', completedAt: 'x', source: { fileName: 'a.zip', upload: 'u.zip', sizeBytes: 1, sha: 'abc', root: 'r', uploadedBy: 'console', rerunOf: null }, params: { ...params, versionCode: 1007 }, plan: null, jobs: [], error: null }),
+    );
+    expect(await store.get(7)).toMatchObject({ app: null, number: 7, source: { kind: 'zip', fileName: 'a.zip', sha: 'abc', startedBy: 'console', commit: null }, params: { versionCode: 1007 } });
+  });
+
+  it('tells which app is uploading to Google Play, so nothing reads Play meanwhile', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { runner, start } = await setup([job('Google Play', [], [{ name: 'Upload to Google Play', run: () => gate }])]);
+    const run = await start();
+    for (let i = 0; i < 50 && !runner.uploading('com.example.demo'); i += 1) await new Promise((r) => setTimeout(r, 20));
+    expect(runner.uploading('com.example.demo')).toBe(`Demo #${run.number} is uploading to Google Play.`);
+    expect(runner.uploading('com.other.app')).toBeNull();
+    expect(runner.current).toMatchObject({ id: run.id, appId: 'demo', number: run.number, job: 'Google Play' });
+    release();
+    await runner.drain();
+    expect(runner.uploading('com.example.demo')).toBeNull();
   });
 
   it('removes the unpacked source after a run and keeps the artifacts', async () => {

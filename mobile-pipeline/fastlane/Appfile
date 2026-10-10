@@ -1,3 +1,3 @@
-# The Google Play service-account key never lives in this repository: CI passes it in from the
-# PLAY_SERVICE_ACCOUNT_JSON secret (json_key_data in the Fastfile).
-package_name('com.fusionapps.fusionhrm')
+# The app and its Google Play key come from the run: the console's builder sets
+# PLAY_PACKAGE_NAME and PLAY_SERVICE_ACCOUNT_JSON for the Fastlane step (see Fastfile).
+package_name(ENV['PLAY_PACKAGE_NAME']) if ENV['PLAY_PACKAGE_NAME']

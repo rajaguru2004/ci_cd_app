@@ -48,8 +48,8 @@ function Login() {
             </g>
           </svg>
           <div>
-            <h1 className="text-[20px] font-bold text-ink">FusionHRM Android pipeline</h1>
-            <p className="text-[13px] text-muted">Builds, tests and Google Play releases</p>
+            <h1 className="text-[20px] font-bold text-ink">Release Console</h1>
+            <p className="text-[13px] text-muted">Build, test and release your apps to Google Play</p>
           </div>
         </div>
         <form onSubmit={submit} className="panel space-y-5 px-6 py-6">

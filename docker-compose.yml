@@ -1,14 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# FusionHRM mobile pipeline console
+# Release Console: build, test and release the organization's Android apps
 #
 #   web      Next.js UI on ${CONSOLE_PORT:-7080}; proxies /api/* to the api service
-#   api      NestJS; talks to GitHub Actions (GITHUB_TOKEN) and Google Play (the key
-#            mounted below as a read-only secret); takes source ZIP uploads
-#   builder  runs the release pipeline on this server for uploaded source ZIPs
-#            (Flutter, Android SDK, Fastlane); reachable only by the api
+#   api      NestJS: sign-in, apps, runs; holds no repository, signing or Play key
+#   builder  the vault (SSH keys, upload keystores, Play keys, sealed with VAULT_KEY),
+#            git over SSH, and the pipeline (Flutter, Android SDK, Fastlane);
+#            reachable only by the api
 #
-# GitHub runs keep no state here: they are read from GitHub. Runs of uploaded ZIPs
-# live in the `builds` volume (records, logs, the AAB), shared by api and builder.
+# Apps, runs, logs and AABs live in the `builds` volume; repository mirrors and
+# the vault live there too, readable by the builder's root only.
 #
 #   ./scripts/deploy.sh up        build and start on this machine
 #   ./scripts/deploy.sh push      build and push images for a server
@@ -21,19 +21,18 @@ services:
   api:
     build:
       context: ./apps/api
-    image: ${IMAGE_PREFIX:-rajaguru2004/fusionhrm-mobile-ci}-api:${IMAGE_TAG:-latest}
+    image: ${IMAGE_PREFIX:-rajaguru2004/release-console}-api:${IMAGE_TAG:-latest}
     container_name: mobile_ci_api
     restart: unless-stopped
-    env_file: .env
     environment:
       PORT: "3001"
-      PLAY_SERVICE_ACCOUNT_FILE: /run/secrets/play-service-account.json
+      CONSOLE_PASSWORD: ${CONSOLE_PASSWORD:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
       BUILDER_URL: http://builder:4000
+      BUILDER_TOKEN: ${BUILDER_TOKEN:?BUILDER_TOKEN must be set in .env}
       BUILDS_DIR: /data
-    secrets:
-      # Mounted read-only at /run/secrets/<target>.
-      - source: play-service-account
-        target: play-service-account.json
     volumes:
       - builds:/data
     depends_on:
@@ -59,7 +58,7 @@ services:
       context: ./apps/web
       args:
         API_INTERNAL_URL: http://api:3001
-    image: ${IMAGE_PREFIX:-rajaguru2004/fusionhrm-mobile-ci}-web:${IMAGE_TAG:-latest}
+    image: ${IMAGE_PREFIX:-rajaguru2004/release-console}-web:${IMAGE_TAG:-latest}
     container_name: mobile_ci_web
     restart: unless-stopped
     depends_on:
@@ -85,22 +84,25 @@ services:
       context: .
       dockerfile: apps/builder/Dockerfile
       target: builder
-    image: ${IMAGE_PREFIX:-rajaguru2004/fusionhrm-mobile-ci}-builder:${IMAGE_TAG:-latest}
+    image: ${IMAGE_PREFIX:-rajaguru2004/release-console}-builder:${IMAGE_TAG:-latest}
     container_name: mobile_ci_builder
     restart: unless-stopped
     # tini as PID 1: reaps the processes builds leave behind (dart, Gradle, Kotlin).
     init: true
-    # Deliberately not the console's .env: the builder never sees the GitHub token.
+    # Deliberately not the whole .env: the builder gets its token, the vault key and its limits.
     environment:
       BUILDER_TOKEN: ${BUILDER_TOKEN:?BUILDER_TOKEN must be set in .env}
-      PLAY_SERVICE_ACCOUNT_FILE: /run/secrets/play-service-account.json
+      VAULT_KEY: ${VAULT_KEY:?VAULT_KEY must be set in .env (openssl rand -hex 32); it encrypts the stored keys}
+      PLAY_SERVICE_ACCOUNT_FILE: /run/console-secrets/play-service-account.json
       GRADLE_HEAP: ${BUILDER_GRADLE_HEAP:-4g}
       KEEP_RUNS: ${BUILDER_KEEP_RUNS:-30}
-    secrets:
-      - source: play-service-account
-        target: play-service-account.json
+      # An app's own GitHub token reaches this (or GitHub Enterprise Server) to plan, start and
+      # follow its runs there; the app's secrets (keystore, Play key) are never sent elsewhere.
+      GITHUB_API_URL: ${GITHUB_API_URL:-https://api.github.com}
     volumes:
       - builds:/data
+      # Optional: the default Google Play key for apps without one of their own.
+      - ${SECRETS_DIR:-./secrets}:/run/console-secrets:ro
       # Caches that make the second build minutes faster than the first.
       - pub-cache:/cache/pub
       - gradle-cache:/cache/gradle
@@ -123,13 +125,6 @@ services:
       options: { max-size: "10m", max-file: "5" }
     networks:
       - mobile_ci
-
-secrets:
-  # Google Play service-account JSON. Keep it out of git (secrets/ is ignored) and
-  # readable by uid 1000, the `node` user of the api container. In the builder only
-  # root (the runner) reads it, and only for the Fastlane upload step.
-  play-service-account:
-    file: ${PLAY_KEY_FILE:-./secrets/play-service-account.json}
 
 volumes:
   builds: {}

@@ -1,5 +1,5 @@
 /**
- * Reads a GitHub Actions job log. Each line starts with an RFC 3339 timestamp; workflow
+ * Reads a job log (written in GitHub Actions' format by the builder). Each line starts with an RFC 3339 timestamp; workflow
  * commands (`##[error]`, `##[group]` …) mark errors and folds. Every step begins with a
  * `##[group]Run …` line, post steps with "Post job cleanup.", the final step with "Cleaning up
  * orphan processes" — those boundaries split the log into one section per step, and the

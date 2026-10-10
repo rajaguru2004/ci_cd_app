@@ -12,6 +12,8 @@ async function bootstrap(): Promise<void> {
   // Requests arrive through the web container (and usually a TLS proxy); both sit on private
   // networks, so X-Forwarded-For from them is trusted and req.ip is the browser's address.
   app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+  // A keystore travels base64 in JSON on its way to the vault.
+  app.useBodyParser('json', { limit: '2mb' });
   app.setGlobalPrefix('api');
   app.use(cookieParser());
   app.useGlobalPipes(
@@ -24,10 +26,7 @@ async function bootstrap(): Promise<void> {
   );
   app.enableShutdownHooks();
   await app.listen(config.port, '0.0.0.0');
-  new Logger('Console').log(
-    `API on :${config.port} for ${config.githubRepo} (${config.workflowFile})` +
-      (config.githubToken ? '' : ' — no GITHUB_TOKEN, setup-only mode'),
-  );
+  new Logger('Console').log(`API on :${config.port}${config.builderUrl ? ` · builder ${config.builderUrl}` : ' · no builder configured'}`);
 }
 
 void bootstrap();

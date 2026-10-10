@@ -1,10 +1,12 @@
 # syntax=docker/dockerfile:1.7
 #
-# The builder: runs the release pipeline on this server for source ZIPs uploaded to the console.
-# Build context is the repository root (it needs mobile-pipeline/ for the Fastlane lanes):
+# The builder: git over SSH, the vault of keys, and the release pipeline for every app the
+# console manages. Build context is the repository root (it needs mobile-pipeline/ for the
+# Fastlane lanes):
 #   docker compose build builder
 #
-# Toolchain versions match the GitHub pipeline (release.yml): Flutter 3.47.5, JDK 17.
+# Toolchain: Flutter 3.47.5, JDK 17, Android SDK 36, Ruby + Fastlane. The first stages are the
+# heavy, rarely changing toolchain; what changes with the console comes last.
 
 FROM eclipse-temurin:17-jdk-noble AS toolchain
 ARG FLUTTER_VERSION=3.47.5
@@ -56,14 +58,21 @@ COPY apps/builder/src ./src
 RUN npm run build && npm prune --omit=dev
 
 FROM fastlane AS builder
+ARG FLUTTER_VERSION=3.47.5
+# ssh for git over SSH (the toolchain layers above stay cached when this one changes).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssh-client \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=node:20-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 COPY mobile-pipeline/fastlane /opt/pipeline/fastlane
 COPY --from=runner-build /app /opt/runner
 ENV NODE_ENV=production \
-    PORT=4000
+    PORT=4000 \
+    TOOLCHAIN_FLUTTER=${FLUTTER_VERSION}
 EXPOSE 4000
-# The runner starts as root only to hand each build step to the unprivileged `builder` user
-# and to keep the Play key away from it (see src/steps.ts).
+# The runner is root: it alone reads the vault (SSH keys, keystores, Play keys) and runs git,
+# signing and Fastlane; every build step is handed to the unprivileged `builder` user, which
+# can read none of them (see src/pipeline.ts).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "/opt/runner/dist/main.js"]

@@ -67,9 +67,9 @@ function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: nu
   return `M ${x1.toFixed(3)} ${y1.toFixed(3)} A ${r} ${r} 0 0 1 ${x2.toFixed(3)} ${y2.toFixed(3)}`;
 }
 
-export function ringLabel(run: RunSummary): string {
+export function ringLabel(run: Pick<RunSummary, 'number' | 'state' | 'stages'> & { app?: { name: string } | null }): string {
   const parts = run.stages.map((s) => `${STAGE_LABELS[s.key]} ${STATE_WORD[s.state]}`);
-  return `${run.id < 0 ? 'ZIP run' : 'Run'} ${run.number}, ${RUN_WORD[run.state].toLowerCase()}: ${parts.join(', ')}`;
+  return `${run.app ? `${run.app.name} ` : ''}run #${run.number}, ${RUN_WORD[run.state].toLowerCase()}: ${parts.join(', ')}`;
 }
 
 /** True when this run put a build on a Google Play track. */

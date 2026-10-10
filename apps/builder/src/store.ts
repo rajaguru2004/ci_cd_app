@@ -1,12 +1,11 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import type { RunRecord } from './types';
+import type { RunRecord, RunSource } from './types';
 
 /**
  * Runs on disk, one folder each under runs/: run.json (the record the console reads), logs/,
- * artifacts/ (named like the GitHub pipeline's artifacts) and, while it runs, src/ and play/.
- * Writes go to a temporary file and are renamed into place, so a reader never sees half a
- * record.
+ * artifacts/ and, while it runs, src/ and play/. Writes go to a temporary file and are renamed
+ * into place, so a reader never sees half a record.
  */
 export class RunStore {
   constructor(private readonly runsDir: string) {}
@@ -41,7 +40,7 @@ export class RunStore {
 
   async get(id: number): Promise<RunRecord | null> {
     try {
-      return JSON.parse(await fs.readFile(join(this.dir(id), 'run.json'), 'utf8')) as RunRecord;
+      return normalize(JSON.parse(await fs.readFile(join(this.dir(id), 'run.json'), 'utf8')) as RunRecord);
     } catch {
       return null;
     }
@@ -70,4 +69,36 @@ export class RunStore {
     await fs.writeFile(tmp, data);
     await fs.rename(tmp, path);
   }
+}
+
+/**
+ * Runs recorded before the console had apps were all ZIP runs of one app: they read as such
+ * (no app until `adopt-runs` gives them one, their own id as their number).
+ */
+export function normalize(run: RunRecord): RunRecord {
+  const legacy = run.source as unknown as Partial<RunSource> & { uploadedBy?: string };
+  const source: RunSource =
+    legacy.kind === 'git' || legacy.kind === 'zip'
+      ? (run.source as RunSource)
+      : {
+          kind: 'zip',
+          fileName: (legacy as { fileName?: string }).fileName ?? 'source.zip',
+          upload: (legacy as { upload?: string }).upload ?? '',
+          sizeBytes: (legacy as { sizeBytes?: number }).sizeBytes ?? 0,
+          sha: legacy.sha ?? null,
+          root: legacy.root ?? null,
+          commit: null,
+          startedBy: legacy.uploadedBy ?? 'console',
+          rerunOf: legacy.rerunOf ?? null,
+        };
+  return {
+    ...run,
+    app: run.app ?? null,
+    number: run.number ?? run.id,
+    source,
+    params: { ...run.params, versionCode: run.params?.versionCode ?? null },
+    // Runs recorded before GitHub Actions came back all ran on this server.
+    runner: run.runner ?? 'server',
+    remote: run.remote ?? null,
+  };
 }

@@ -1,5 +1,4 @@
-import type { GhJob, GhStep } from '../github/github.types';
-import { describeRun, mapStages, parseReleaseSubject, parseReleaseTag, runState, StageKey } from './stages';
+import { GhJob, GhStep, mapStages, runState, StageKey } from './stages';
 
 let nextId = 1;
 const t = (min: number) => new Date(Date.UTC(2026, 8, 29, 10, min)).toISOString();
@@ -16,7 +15,7 @@ function step(name: string, status: string, conclusion: string | null, start?: n
 }
 
 function job(name: string, status: string, conclusion: string | null, steps: GhStep[] = []): GhJob {
-  return { id: nextId++, run_id: 1, name, status, conclusion, html_url: `https://gh/job/${name}`, steps };
+  return { id: nextId++, name, status, conclusion, steps };
 }
 
 const ok = (name: string, a: number, b: number) => step(name, 'completed', 'success', a, b);
@@ -26,7 +25,7 @@ const states = (jobs: GhJob[], run = { status: 'in_progress', conclusion: null a
 const planDone = () => job('Plan', 'completed', 'success', [ok('Set up job', 0, 0), ok('Checkout code', 0, 1), ok('Resolve plan', 1, 1), ok('Upload plan', 1, 1), ok('Complete job', 1, 1)]);
 
 describe('mapStages', () => {
-  it('shows everything pending while GitHub has not created a job yet', () => {
+  it('shows everything pending while no job has started', () => {
     expect(states([], { status: 'queued', conclusion: null })).toEqual({
       checkout: 'pending', dependencies: 'pending', tests: 'pending', aab: 'pending', fastlane: 'pending', play: 'pending',
     });
@@ -100,6 +99,32 @@ describe('mapStages', () => {
     expect(states([planDone(), release])).toMatchObject({ fastlane: 'success', play: 'running' });
   });
 
+  it('puts the builder\'s Fastlane preparation under Fastlane and the upload under Google Play', () => {
+    const play = job('Google Play', 'completed', 'success', [
+      ok('Set up job', 10, 10),
+      ok('Prepare Fastlane', 10, 10),
+      ok('Set up Ruby and Fastlane', 10, 11),
+      ok('Write release notes', 11, 11),
+      ok('Upload to Google Play', 11, 13),
+      ok('Save release info', 13, 13),
+      ok('Complete job', 13, 13),
+    ]);
+    const stages = mapStages([play], { status: 'completed', conclusion: 'success' });
+    expect(stages.find((s) => s.key === 'fastlane')!.steps.map((s) => s.name)).toEqual(['Set up job', 'Prepare Fastlane', 'Set up Ruby and Fastlane', 'Write release notes']);
+    expect(stages.find((s) => s.key === 'play')!.steps.map((s) => s.name)).toEqual(['Upload to Google Play', 'Save release info', 'Complete job']);
+  });
+
+  it('maps GitHub Actions\' extra Sign AAB job and Install Fastlane step the same as the server\'s own jobs', () => {
+    const build = job('Signed AAB', 'completed', 'success', [ok('Build AAB', 6, 10), ok('Save AAB', 10, 10)]);
+    const sign = job('Sign AAB', 'completed', 'success', [ok('Download AAB', 10, 10), ok('Sign with the upload key', 10, 12), ok('Verify signature', 12, 12)]);
+    expect(states([planDone(), build, sign])).toMatchObject({ aab: 'success', fastlane: 'pending' });
+
+    const play = job('Google Play', 'completed', 'success', [ok('Set up job', 12, 12), ok('Prepare Fastlane', 12, 12), ok('Install Fastlane', 12, 13), ok('Upload to Google Play', 13, 14)]);
+    const stages = mapStages([play], { status: 'completed', conclusion: 'success' });
+    expect(stages.find((s) => s.key === 'fastlane')!.steps.map((s) => s.name)).toEqual(['Set up job', 'Prepare Fastlane', 'Install Fastlane']);
+    expect(stages.find((s) => s.key === 'play')!.steps.map((s) => s.name)).toEqual(['Upload to Google Play']);
+  });
+
   it('maps the Play access check onto Fastlane and Google Play only', () => {
     const check = job('Google Play access', 'completed', 'failure', [
       ok('Set up job', 1, 1),
@@ -154,47 +179,5 @@ describe('runState', () => {
     ['waiting', null, 'waiting'],
   ])('%s/%s → %s', (status, conclusion, expected) => {
     expect(runState({ status, conclusion })).toBe(expected);
-  });
-});
-
-describe('release markers (same rule as release-plan.sh)', () => {
-  it.each([
-    ['release: Faster check-in', { track: null, notes: 'Faster check-in' }],
-    ['release(beta): Arabic fixes', { track: 'beta', notes: 'Arabic fixes' }],
-    ['release(production):Payslips', { track: 'production', notes: 'Payslips' }],
-    ['release:', { track: null, notes: '' }],
-  ])('%s', (subject, expected) => {
-    expect(parseReleaseSubject(subject)).toEqual(expected);
-  });
-
-  it.each(['feat: release notes', 'Release: capital', 'release(staging): x', 'released: x'])('%s is not a release', (s) => {
-    expect(parseReleaseSubject(s)).toBeNull();
-  });
-
-  it('reads version and track from release tags', () => {
-    expect(parseReleaseTag('v1.0.2')).toEqual({ version: '1.0.2', track: null });
-    expect(parseReleaseTag('v1.0.3-beta')).toEqual({ version: '1.0.3', track: 'beta' });
-    expect(parseReleaseTag('release-1')).toBeNull();
-    expect(parseReleaseTag('v1.0')).toBeNull();
-  });
-});
-
-describe('describeRun', () => {
-  const base = { head_commit: null, head_branch: 'main' };
-  it('reads a console release from its run name', () => {
-    expect(describeRun({ ...base, event: 'workflow_dispatch', display_title: 'Release to production · main · a1b2c3' })).toEqual({
-      trigger: 'console', mode: 'release', track: 'production', tag: null, requestId: 'a1b2c3', rehearsal: false,
-    });
-    expect(describeRun({ ...base, event: 'workflow_dispatch', display_title: 'Rehearse release to internal · main · ffffff' })).toMatchObject({
-      mode: 'release', track: 'internal', rehearsal: true,
-    });
-  });
-  it('reads console builds and Play checks', () => {
-    expect(describeRun({ ...base, event: 'workflow_dispatch', display_title: 'Build and test · feat/x · ffffff' }).mode).toBe('build');
-    expect(describeRun({ ...base, event: 'workflow_dispatch', display_title: 'Check Play access · main' })).toMatchObject({ mode: 'validate', requestId: null });
-  });
-  it('reads release commits and tags', () => {
-    expect(describeRun({ ...base, event: 'push', display_title: 'x', head_commit: { id: 'a', message: 'release(alpha): hi\n\nbody', timestamp: '' } })).toMatchObject({ trigger: 'commit', mode: 'release', track: 'alpha' });
-    expect(describeRun({ ...base, event: 'push', head_branch: 'v1.2.3-internal', display_title: 'Release tag v1.2.3-internal' })).toMatchObject({ trigger: 'tag', mode: 'release', track: 'internal', tag: 'v1.2.3-internal' });
   });
 });

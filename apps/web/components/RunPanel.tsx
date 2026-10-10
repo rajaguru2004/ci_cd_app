@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { ExternalLink, OctagonX, RotateCcw, RotateCw, TriangleAlert } from 'lucide-react';
+import { ExternalLink, OctagonX, RotateCw, TriangleAlert } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { ago, between, duration, isLocal, runLabel, short, since } from '@/lib/format';
-import type { RunDetail, RunSummary, StageKey } from '@/lib/types';
+import { ago, between, duration, runLabel, runWhat, short, since } from '@/lib/format';
+import type { RunDetail, RunSummary, StageKey, StartedRun } from '@/lib/types';
 import { usePoll } from '@/lib/usePoll';
 import { LogPane } from './LogPane';
 import { Outputs } from './Outputs';
@@ -13,19 +13,9 @@ import { StageStrip } from './StageStrip';
 import { RUN_INK, RUN_WORD, StageRing, StateGlyph, runAsStage, STAGE_LABELS } from './stage';
 
 function triggerText(run: RunSummary): string {
-  const who = run.actor?.login;
-  if (run.trigger === 'console') return who ? `started from the console by ${who}` : 'started from the console';
-  if (run.trigger === 'tag') return `started by tag ${run.tag}`;
-  if (run.trigger === 'commit') return 'started by a release: commit';
-  if (run.trigger === 'upload') return 'built on this server from an uploaded ZIP';
-  return `started by ${run.event}`;
-}
-
-function runTitle(run: RunSummary): string {
-  if (run.mode === 'release') return `${run.rehearsal ? 'Rehearsal' : 'Release'}${run.track ? ` → ${run.track}` : ''}`;
-  if (run.mode === 'validate') return 'Check Play access';
-  if (run.mode === 'build') return 'Build and test';
-  return run.title;
+  const how = run.source.kind === 'zip' ? 'built from an uploaded ZIP' : `pulled from ${run.source.branch ?? 'the repository'}`;
+  const where = run.runner === 'github' ? ', on GitHub Actions' : '';
+  return run.rerunOf ? `${how}${where}, run again` : `${how}${where}`;
 }
 
 export function RunPanel({
@@ -42,8 +32,6 @@ export function RunPanel({
   now: number;
   onChanged: () => void;
 }) {
-  // A run of an uploaded ZIP lives on this server's builder, not on GitHub.
-  const local = isLocal({ id: runId });
   const [active, setActive] = useState(true);
   const poll = usePoll<RunDetail>(() => api<RunDetail>(`/runs/${runId}`), active ? 4000 : 30000, [runId]);
   const detail = poll.data;
@@ -79,10 +67,10 @@ export function RunPanel({
     setBusy(label);
     setActionError(null);
     try {
-      const res = await api<{ runId?: number } | undefined>(`/runs/${runId}/${path}`, { method: 'POST' });
+      const res = await api<StartedRun | undefined>(`/runs/${runId}/${path}`, { method: 'POST' });
       onChanged();
-      // Re-running an uploaded ZIP starts a new run on the builder: follow it.
-      if (local && res?.runId && res.runId !== runId) return onSelectRun(res.runId);
+      // Running again starts a new run: follow it.
+      if (res?.runId && res.runId !== runId) return onSelectRun(res.runId);
       setActive(true);
       await poll.refresh();
     } catch (e) {
@@ -121,22 +109,29 @@ export function RunPanel({
       : `On Google Play · ${detail.release.track}`;
   }
   if (run.state === 'success' && !detail.release && (detail.plan?.mode ?? run.mode) === 'build') headline = 'Passed · AAB ready';
+  if (run.state === 'queued') headline = 'Queued · the builder runs one build at a time';
 
   return (
     <article className="space-y-5" aria-labelledby="run-title">
       <header className="panel px-5 pb-5 pt-5 md:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
           <div className="min-w-0 flex-1">
-            <h1 id="run-title" className="text-[24px] font-bold leading-tight tracking-[-0.01em] text-ink [text-wrap:balance]">
-              {detail.commit.subject || run.title}
-            </h1>
+            <h2 id="run-title" className="text-[24px] font-bold leading-tight tracking-[-0.01em] text-ink [text-wrap:balance]">
+              {detail.commit.subject || `${runLabel(run)} ${runWhat(run)}`}
+            </h2>
             <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
               {detail.commit.sha ? (
-                <span className="font-mono">{short(detail.commit.sha)}</span>
+                detail.commit.url ? (
+                  <a href={detail.commit.url} target="_blank" rel="noreferrer" className="font-mono underline-offset-2 hover:text-brand hover:underline">
+                    {short(detail.commit.sha)}
+                  </a>
+                ) : (
+                  <span className="font-mono">{short(detail.commit.sha)}</span>
+                )
               ) : (
-                <span>commit not recorded in the ZIP</span>
+                <span>{run.source.kind === 'zip' ? 'commit not recorded in the ZIP' : 'commit chosen when the run starts'}</span>
               )}
-              {detail.commit.author && !local && (
+              {detail.commit.author && (
                 <>
                   <span aria-hidden>·</span>
                   <span>{detail.commit.author}</span>
@@ -148,10 +143,16 @@ export function RunPanel({
                   <time dateTime={detail.commit.date}>{ago(detail.commit.date, now)}</time>
                 </>
               )}
-              {run.branch && (
+              {run.source.kind === 'git' && run.source.branch && (
                 <>
                   <span aria-hidden>·</span>
-                  <span className="font-mono">{run.branch}</span>
+                  <span className="font-mono">{run.source.branch}</span>
+                </>
+              )}
+              {run.source.kind === 'zip' && run.source.fileName && (
+                <>
+                  <span aria-hidden>·</span>
+                  <span className="truncate font-mono">{run.source.fileName}</span>
                 </>
               )}
             </p>
@@ -163,33 +164,27 @@ export function RunPanel({
                 {busy === 'Cancel' ? 'Cancelling…' : 'Cancel run'}
               </button>
             )}
-            {run.state === 'failed' && !local && (
-              <button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={() => act('rerun-failed', 'Re-run')}>
-                <RotateCcw size={15} aria-hidden />
-                {busy === 'Re-run' ? 'Starting…' : 'Re-run failed jobs'}
-              </button>
-            )}
-            {!running && !local && (
-              <button type="button" className="btn btn-secondary" disabled={Boolean(busy)} onClick={() => act('rerun', 'Re-run all')}>
-                <RotateCw size={15} aria-hidden />
-                {busy === 'Re-run all' ? 'Starting…' : 'Re-run all'}
-              </button>
-            )}
-            {!running && local && (
+            {!running && (
               <button
                 type="button"
-                className={run.state === 'failed' ? 'btn btn-primary' : 'btn btn-secondary'}
+                className="btn btn-secondary"
                 disabled={Boolean(busy)}
-                onClick={() => act('rerun', 'Re-run')}
-                title="Runs the same ZIP with the same settings and a new version code"
+                onClick={() => act('rerun', 'Run again')}
+                title="The same source and settings, with a fresh version code"
               >
                 <RotateCw size={15} aria-hidden />
-                {busy === 'Re-run' ? 'Starting…' : 'Re-run this ZIP'}
+                {busy === 'Run again' ? 'Starting…' : 'Run again'}
               </button>
             )}
-            {run.url && (
-              <a className="btn btn-quiet h-10" href={run.url} target="_blank" rel="noreferrer">
-                GitHub
+            {detail.commit.url && (
+              <a className="btn btn-quiet h-10" href={detail.commit.url} target="_blank" rel="noreferrer">
+                Commit
+                <ExternalLink size={14} aria-hidden />
+              </a>
+            )}
+            {run.remoteUrl && (
+              <a className="btn btn-quiet h-10" href={run.remoteUrl} target="_blank" rel="noreferrer">
+                GitHub Actions
                 <ExternalLink size={14} aria-hidden />
               </a>
             )}
@@ -211,7 +206,7 @@ export function RunPanel({
                 )}
               >
                 <StateGlyph state={runAsStage(r.state)} size={14} />
-                {runLabel(r)} {runTitle(r)}
+                {runLabel(r)} {runWhat(r)}
               </button>
             ))}
           </div>
@@ -219,30 +214,25 @@ export function RunPanel({
 
         <div className="mt-5 flex items-center gap-4">
           {/* The rail's ring for this run, at size: the strip below is the same six stages unrolled. */}
-          <StageRing stages={detail.stages} size={44} shippedCore={Boolean(detail.release) && !detail.release?.validatedOnly && !rehearsal} label={`Stages of ${local ? 'ZIP run' : 'run'} ${run.number}`} />
+          <StageRing stages={detail.stages} size={44} shippedCore={Boolean(detail.release) && !detail.release?.validatedOnly && !rehearsal} label={`Stages of run #${run.number}`} />
           <div className="min-w-0">
             <p className={clsx('text-[15px] font-semibold', RUN_INK[run.state])}>{headline}</p>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted">
               <span className="font-medium text-body">
-                {runLabel(run)} {runTitle(run)}
+                {runLabel(run)} {runWhat(run)}
               </span>
-              {run.attempt > 1 && <span>· attempt {run.attempt}</span>}
               <span>
                 · <span className="tabular">{duration(elapsed)}</span> · {triggerText(run)}
               </span>
-              {run.tag && (
-                <span className="inline-flex h-5 items-center rounded-full border border-ship/40 bg-ship-wash px-2 font-mono text-[11px] font-medium text-ship-ink">
-                  {run.tag}
-                </span>
-              )}
               {(detail.plan?.mode ?? run.mode) === 'release' &&
-                (rehearsal ? (
-                  <span className="inline-flex h-5 items-center rounded-full border border-line px-2 text-[11px] font-semibold text-body">
-                    rehearsal → {detail.plan?.track ?? run.track ?? 'default track'}
+                // Signal Orange only once the build is on the track; a release that stopped short, or a rehearsal, wears the neutral chip.
+                (detail.release && !detail.release.validatedOnly && !rehearsal ? (
+                  <span className="inline-flex h-5 items-center rounded-full bg-ship-wash px-2 text-[11px] font-semibold text-ship-ink">
+                    released → {detail.release.track}
                   </span>
                 ) : (
-                  <span className="inline-flex h-5 items-center rounded-full bg-ship-wash px-2 text-[11px] font-semibold text-ship-ink">
-                    release → {detail.plan?.track ?? run.track ?? 'default track'}
+                  <span className="inline-flex h-5 items-center rounded-full border border-line px-2 text-[11px] font-semibold text-body">
+                    {rehearsal ? 'rehearsal' : 'release'} → {detail.plan?.track ?? run.track ?? 'default track'}
                   </span>
                 ))}
             </p>
@@ -291,7 +281,18 @@ export function RunPanel({
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
         <div className="min-w-0">
-          {stageView && <LogPane key={`${runId}-${stageView.key}`} runId={runId} stage={stageView} jobs={detail.jobs} now={now} focusStep={focusStep} />}
+          {stageView && (
+            <LogPane
+              key={`${runId}-${stageView.key}`}
+              runId={runId}
+              logName={`${run.app?.id ?? 'run'}-${run.number}`}
+              stage={stageView}
+              jobs={detail.jobs}
+              now={now}
+              focusStep={focusStep}
+              remoteUrl={run.runner === 'github' ? run.remoteUrl : null}
+            />
+          )}
         </div>
         <Outputs detail={detail} />
       </div>

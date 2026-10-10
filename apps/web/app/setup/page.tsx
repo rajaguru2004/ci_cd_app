@@ -1,91 +1,136 @@
 'use client';
 
-import { useRef, useState } from 'react';
 import Link from 'next/link';
-import { CircleAlert, CircleCheck, CircleDashed, CircleHelp, CircleX, ExternalLink, RefreshCw, Upload } from 'lucide-react';
+import { useState } from 'react';
+import { CircleAlert, CircleCheck, CircleDot, CircleX, RefreshCw } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { ago, clock } from '@/lib/format';
-import type { CheckState, SetupResponse } from '@/lib/types';
-import { useNow, usePoll } from '@/lib/usePoll';
-import { PlayTracks } from '@/components/PlayTracks';
-import { StartSheet } from '@/components/StartSheet';
+import { ago } from '@/lib/format';
+import type { GithubTokenView, SetupResponse } from '@/lib/types';
+import { usePoll } from '@/lib/usePoll';
+import { STAGE_LABELS } from '@/components/stage';
 import { TopBar } from '@/components/TopBar';
 
-/** Missing is amber, not Signal Orange: orange is kept for what ships. */
-function CheckGlyph({ state }: { state: CheckState }) {
+function Row({ state, title, children }: { state: 'ok' | 'warn' | 'fail' | 'run'; title: string; children: React.ReactNode }) {
   const common = { size: 18, strokeWidth: 2.2, 'aria-hidden': true as const, className: 'mt-0.5 shrink-0' };
-  if (state === 'ok') return <CircleCheck {...common} color="var(--color-ok)" />;
-  if (state === 'error') return <CircleX {...common} color="var(--color-fail)" />;
-  if (state === 'missing') return <CircleAlert {...common} color="var(--color-warn)" />;
-  if (state === 'pending') return <CircleDashed {...common} color="var(--color-run)" />;
-  return <CircleHelp {...common} color="var(--color-faint)" />;
-}
-
-const STATE_WORD: Record<CheckState, string> = {
-  ok: 'ready',
-  missing: 'missing',
-  error: 'failing',
-  unknown: 'unknown',
-  pending: 'not checked yet',
-};
-
-function Snippet({ children }: { children: string }) {
   return (
-    <pre className="mt-2 overflow-x-auto rounded-[var(--radius-control)] border border-line bg-page px-3 py-2 font-mono text-[12px] leading-relaxed text-ink">
-      {children}
-    </pre>
+    <li className="flex gap-3 px-5 py-4 md:px-6">
+      {state === 'ok' ? (
+        <CircleCheck {...common} color="var(--color-ok)" />
+      ) : state === 'fail' ? (
+        <CircleX {...common} color="var(--color-fail)" />
+      ) : state === 'run' ? (
+        <CircleDot {...common} color="var(--color-run)" />
+      ) : (
+        <CircleAlert {...common} color="var(--color-warn)" />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold text-ink">{title}</p>
+        <div className="mt-0.5 break-words text-[13px] text-body">{children}</div>
+      </div>
+    </li>
   );
 }
 
-export default function SetupPage() {
-  const setup = usePoll<SetupResponse>(() => api<SetupResponse>('/setup'), 60_000, []);
-  const now = useNow(true, 30_000);
-  const [startOpen, setStartOpen] = useState(false);
+/** The console's default GitHub token: what an app uses to build on GitHub Actions unless it has its own. */
+function GithubTokenPanel({ token, onChange }: { token: GithubTokenView | null; onChange: (t: GithubTokenView | null) => void }) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'ok' | 'fail'; text: string } | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const data = setup.data;
 
-  async function run(label: string, fn: () => Promise<string>) {
-    setBusy(label);
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
     setNotice(null);
     try {
-      setNotice({ tone: 'ok', text: await fn() });
-      await setup.refresh();
-    } catch (e) {
-      setNotice({ tone: 'fail', text: e instanceof ApiError ? e.message : `${label} failed.` });
+      const res = await api<{ token: GithubTokenView }>('/github/token', { method: 'PUT', json: { token: value.trim() } });
+      onChange(res.token);
+      setValue('');
+      setNotice({ tone: 'ok', text: `Stored. Builds act as ${res.token.login} on GitHub unless an app has its own token.` });
+    } catch (err) {
+      setNotice({ tone: 'fail', text: err instanceof ApiError ? err.message : 'The token was not stored.' });
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
-  const syncKey = () =>
-    run('Copy key', async () => {
-      const r = await api<{ clientEmail: string }>('/setup/play-key/sync', { method: 'POST' });
-      return `Stored ${r.clientEmail} as the PLAY_SERVICE_ACCOUNT_JSON secret on GitHub. Only GitHub can read it back.`;
-    });
+  async function clear() {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await api('/github/token', { method: 'DELETE' });
+      onChange(null);
+    } catch (err) {
+      setNotice({ tone: 'fail', text: err instanceof ApiError ? err.message : 'That did not go through.' });
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  const uploadKey = (file: File) =>
-    run('Upload key', async () => {
-      const json = await file.text();
-      const r = await api<{ clientEmail: string }>('/setup/play-key', { method: 'PUT', json: { json } });
-      return `Stored ${r.clientEmail} as the PLAY_SERVICE_ACCOUNT_JSON secret on GitHub.`;
-    });
+  return (
+    <Row state={token ? 'ok' : 'warn'} title="Default GitHub token">
+      {token ? (
+        <>
+          {token.login} ({token.kind === 'fine-grained' ? 'fine-grained' : token.kind === 'classic' ? 'classic' : 'token'}), stored {ago(token.savedAt)}. Used by any app building on GitHub Actions that has no token of its own.
+        </>
+      ) : (
+        'None: an app building on GitHub Actions needs its own token (its settings → Where builds run) until one is set here.'
+      )}
+      <form onSubmit={save} className="mt-3 flex flex-wrap gap-2">
+        <input
+          className="field min-w-0 flex-1 font-mono"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="github_pat_…"
+          aria-label="GitHub token"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <button type="submit" className="btn btn-secondary" disabled={busy || !value.trim()}>
+          {busy ? 'Checking…' : token ? 'Replace' : 'Save'}
+        </button>
+        {token && (
+          <button type="button" className="btn btn-quiet h-10" onClick={clear} disabled={busy}>
+            Remove
+          </button>
+        )}
+      </form>
+      {notice && (
+        <p role={notice.tone === 'fail' ? 'alert' : 'status'} className={`mt-2 rounded-[var(--radius-control)] px-3 py-2 text-[13px] ${notice.tone === 'ok' ? 'bg-ok-wash text-ok-ink' : 'bg-fail-wash text-fail-ink'}`}>
+          {notice.text}
+        </p>
+      )}
+    </Row>
+  );
+}
 
-  const attention = data ? data.checks.some((c) => c.state !== 'ok') : false;
-  const blocked = data && !data.configured ? (data.checks.find((c) => c.key === 'token')?.detail ?? 'The console has no GitHub token.') : null;
-  const releases = data?.play.snapshot?.tracks.flatMap((t) => t.releases.map((r) => ({ track: t.track, ...r }))) ?? [];
+const STAGE_TEXT: Record<keyof typeof STAGE_LABELS, string> = {
+  checkout: 'git pull: the builder fetches the app’s repository over SSH with the app’s key and checks out the commit (or unpacks the ZIP), then reads the project: its package must be the app’s.',
+  dependencies: 'flutter pub get, as an unprivileged user that can read no key.',
+  tests: 'flutter analyze (errors fail it) and flutter test; then every tool/check_*.dart the project has.',
+  aab: 'flutter build appbundle. With an uploaded upload key, Gradle signs with a throwaway key and the console then signs the finished bundle itself, outside the build.',
+  fastlane: 'Releases only: the console’s Fastlane lanes, with the app’s package and Google Play key for this one step.',
+  play: 'Fastlane uploads the bundle, the R8 mapping and “What’s new” to the track. A rehearsal is validated by Google and discarded.',
+};
+
+export default function SetupPage() {
+  const setup = usePoll<SetupResponse>(() => api<SetupResponse>('/setup'), 30_000, []);
+  const ghDefault = usePoll<{ token: GithubTokenView | null }>(() => api('/github'), null, []);
+  const data = setup.data;
+  const b = data?.builder;
+  const githubIssue = (a: SetupResponse['apps'][number]) => {
+    const c = a.runner.github?.check;
+    if (!c) return false;
+    return c.token !== 'ok' || c.repo !== 'ok' || c.workflow !== 'ok' || c.secrets === 'missing';
+  };
 
   return (
     <div className="min-h-svh">
-      <TopBar onStart={() => setStartOpen(true)} setupAttention={attention} />
+      <TopBar />
       <main className="mx-auto max-w-[1180px] px-4 pb-20 pt-6 md:px-6 md:pt-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-[24px] font-bold text-ink">Setup</h1>
-            <p className="mt-1 max-w-[70ch] text-body">
-              What the pipeline needs, checked live against GitHub and Google Play. Every line says what is missing and what to do.
-            </p>
+            <h1 className="text-[24px] font-bold leading-tight tracking-[-0.01em] text-ink">Setup</h1>
+            <p className="mt-1 max-w-[70ch] text-body">The console itself: the builder every app runs on, the keys it holds, and what a release does.</p>
           </div>
           <button type="button" className="btn btn-secondary" onClick={() => void setup.refresh()} disabled={setup.loading}>
             <RefreshCw size={15} aria-hidden className={setup.loading ? 'animate-spin' : undefined} />
@@ -93,239 +138,120 @@ export default function SetupPage() {
           </button>
         </div>
 
-        {notice && (
-          <p
-            role={notice.tone === 'fail' ? 'alert' : 'status'}
-            className={`mt-5 rounded-[var(--radius-card)] px-4 py-3 text-[13px] ${notice.tone === 'ok' ? 'bg-ok-wash text-ok-ink' : 'bg-fail-wash text-fail-ink'}`}
-          >
-            {notice.text}
-          </p>
-        )}
-
         {setup.error && !data && (
           <p role="alert" className="mt-6 rounded-[var(--radius-card)] bg-fail-wash px-4 py-3 text-fail-ink">
             {setup.error.message}
           </p>
         )}
 
-        <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-          <div className="space-y-6">
-            <section aria-labelledby="checklist" className="panel overflow-hidden">
-              <h2 id="checklist" className="border-b border-line px-5 py-4 text-[16px] font-bold text-ink">
-                Checklist
-              </h2>
-              {!data ? (
-                <ul aria-hidden className="divide-y divide-line">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <li key={i} className="flex gap-3 px-5 py-4">
-                      <span className="h-[18px] w-[18px] animate-pulse rounded-full bg-line-soft" />
-                      <span className="flex-1 space-y-2">
-                        <span className="block h-3.5 w-1/3 animate-pulse rounded bg-line-soft" />
-                        <span className="block h-3 w-3/4 animate-pulse rounded bg-line-soft" />
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <ul className="divide-y divide-line">
-                  {data.checks.map((c) => (
-                    <li key={c.key} className="flex gap-3 px-5 py-4">
-                      <CheckGlyph state={c.state} />
-                      <div className="min-w-0 flex-1">
-                        <p className="flex flex-wrap items-baseline gap-x-2">
-                          <span className="font-semibold text-ink">{c.label}</span>
-                          <span className="text-[12px] text-muted">{STATE_WORD[c.state]}</span>
-                        </p>
-                        <p className="mt-0.5 break-words text-[13px] text-body">{c.detail}</p>
-                        {c.fix && <p className="mt-1 text-[13px] font-medium text-ink">{c.fix}</p>}
-                        {c.key === 'play-secret' && (c.state === 'missing' || c.state === 'ok') && data.configured && (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {data.play.configured && (
-                              <button type="button" className="btn btn-primary" onClick={syncKey} disabled={Boolean(busy)}>
-                                {busy === 'Copy key' ? 'Copying…' : c.state === 'ok' ? 'Replace with the console key' : 'Copy the console key to GitHub'}
-                              </button>
-                            )}
-                            <button type="button" className="btn btn-secondary" onClick={() => fileRef.current?.click()} disabled={Boolean(busy)}>
-                              <Upload size={15} aria-hidden />
-                              {busy === 'Upload key' ? 'Uploading…' : 'Upload a JSON key'}
-                            </button>
-                            <input
-                              ref={fileRef}
-                              type="file"
-                              accept="application/json,.json"
-                              className="sr-only"
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) void uploadKey(f);
-                                e.target.value = '';
-                              }}
-                            />
-                          </div>
-                        )}
-                        {c.key === 'play-access' && c.state !== 'ok' && data.configured && (
-                          <button type="button" className="btn btn-secondary mt-3" onClick={() => setStartOpen(true)}>
-                            Check Play access from GitHub Actions
-                          </button>
-                        )}
-                        {c.url && (
-                          <a href={c.url} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-[13px] font-medium text-brand underline">
-                            Open on GitHub <ExternalLink size={12} aria-hidden />
-                          </a>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section aria-labelledby="triggers" className="panel overflow-hidden">
-              <div className="border-b border-line px-5 py-4">
-                <h2 id="triggers" className="text-[16px] font-bold text-ink">
-                  Four ways a run starts
-                </h2>
-                <p className="mt-1 max-w-[75ch] text-[13px] text-body">
-                  All four run the same pipeline as {data?.workflowFile ?? 'release.yml'}: checkout, dependencies, tests, signed AAB, then Fastlane
-                  to Google Play for releases.
-                </p>
-              </div>
-              <ol className="divide-y divide-line">
-                <li className="px-5 py-4">
-                  <h3 className="font-semibold text-ink">From this console, on GitHub Actions</h3>
-                  <p className="mt-1 text-[13px] text-body">
-                    Start build on any branch that has the pipeline: build and test, a release to a track, or a Play access check.
-                  </p>
-                </li>
-                <li className="px-5 py-4">
-                  <h3 className="font-semibold text-ink">From this console, with a source ZIP</h3>
-                  <p className="mt-1 text-[13px] text-body">
-                    On GitHub: Code → Download ZIP. Then Start build → Upload a source ZIP: this server unpacks it and runs the same stages. No
-                    GitHub token needed.
-                  </p>
-                </li>
-                <li className="px-5 py-4">
-                  <h3 className="font-semibold text-ink">A release commit on main</h3>
-                  <p className="mt-1 text-[13px] text-body">The last commit of the push; the text after the colon becomes &quot;What&apos;s new&quot;.</p>
-                  <Snippet>{'git commit -m "release: Faster check-in"\ngit commit -m "release(beta): Arabic fixes"'}</Snippet>
-                </li>
-                <li className="px-5 py-4">
-                  <h3 className="font-semibold text-ink">A v-tag on a main commit</h3>
-                  <p className="mt-1 text-[13px] text-body">
-                    Notes come from store/play-store/release-notes-1.0.2.txt, else the tag message; v1.0.2-beta picks the track.
-                  </p>
-                  <Snippet>{'git tag -a v1.0.2 -m "What\'s new…"\ngit push origin v1.0.2'}</Snippet>
-                </li>
-              </ol>
-            </section>
-          </div>
-
-          <div className="space-y-6">
-            <section aria-labelledby="play" className="panel overflow-hidden">
-              <div className="px-5 pb-4 pt-5">
-                <div className="flex items-baseline justify-between gap-3">
-                  <h2 id="play" className="text-[16px] font-bold text-ink">
-                    Google Play
-                  </h2>
-                  {data?.play.snapshot && <span className="text-[12px] text-muted">checked {ago(data.play.snapshot.checkedAt, now)}</span>}
-                </div>
-                {data?.play.snapshot ? (
-                  <>
-                    <p className="mt-1 text-[13px] text-body">
-                      <span className="font-mono">{data.play.snapshot.packageName}</span> as{' '}
-                      <span className="break-all">{data.play.clientEmail}</span>
-                    </p>
-                    <div className="mt-4">
-                      <PlayTracks tracks={data.play.snapshot.tracks} />
-                    </div>
-                  </>
-                ) : data?.play.error ? (
-                  <p className="mt-2 text-[13px] text-fail-ink">{data.play.error}</p>
+        <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          <section aria-labelledby="console" className="panel overflow-hidden">
+            <h2 id="console" className="border-b border-line px-5 py-4 text-[16px] font-bold text-ink md:px-6">
+              This console
+            </h2>
+            {!data ? (
+              <div className="h-56 animate-pulse bg-line-soft/50" aria-hidden />
+            ) : (
+              <ul className="divide-y divide-line">
+                {data.error || !b ? (
+                  <Row state="fail" title="Builder">
+                    {data.error} Every build, release and key lives there.
+                  </Row>
                 ) : (
-                  <div className="mt-3 h-24 animate-pulse rounded-[var(--radius-card)] bg-line-soft" />
+                  <Row state={b.busy || b.onGithub.length > 0 ? 'run' : 'ok'} title="Builder">
+                    {b.busy && b.current ? (
+                      <>
+                        Building{' '}
+                        <Link href={b.current.appId ? `/apps/${b.current.appId}?run=${b.current.id}` : '/'} className="font-medium text-brand underline">
+                          {b.current.appName} #{b.current.number}
+                        </Link>
+                        {b.current.job ? ` (${b.current.job})` : ''}
+                        {b.queued ? `, ${b.queued} queued` : ''}. One build at a time, for every app.
+                      </>
+                    ) : (
+                      'Ready and idle. One build at a time, for every app.'
+                    )}{' '}
+                    {b.onGithub.length > 0 && (
+                      <>
+                        On GitHub Actions now:{' '}
+                        {b.onGithub.map((r, i) => (
+                          <span key={r.id}>
+                            {i > 0 && ', '}
+                            <Link href={r.appId ? `/apps/${r.appId}?run=${r.id}` : '/'} className="font-medium text-brand underline">
+                              {r.appName} #{r.number}
+                            </Link>
+                          </span>
+                        ))}
+                        .{' '}
+                      </>
+                    )}
+                    Flutter {b.toolchain.flutter ?? '?'}, {b.toolchain.java ? `Java ${b.toolchain.java.replace(/^jdk-?/, '')}` : 'Java 17'}, Android SDK and Fastlane.
+                  </Row>
                 )}
-              </div>
-              {releases.length > 0 && (
-                <ul className="divide-y divide-line border-t border-line">
-                  {releases.map((r, i) => (
-                    <li key={`${r.track}-${i}`} className="px-5 py-3">
-                      <p className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
-                        <span className={`font-semibold ${r.track === 'production' ? 'text-ship-ink' : 'text-ink'}`}>{r.track}</span>
-                        <span className="font-medium text-ink">{r.name ?? 'unnamed release'}</span>
-                        <span className="text-muted">
-                          code <span className="font-mono">{r.versionCodes.join(', ')}</span> · {r.status}
+                {b && (
+                  <Row state={b.defaultPlayKey ? 'ok' : 'warn'} title="Default Google Play key">
+                    {b.defaultPlayKey ? (
+                      <>
+                        <span className="break-all">{b.defaultPlayKey}</span>: used by every app without a key of its own. Invite it in Play Console for each app it releases.
+                      </>
+                    ) : (
+                      'None mounted. Each app then needs its own service-account key (its settings → Google Play), or mount one at secrets/play-service-account.json.'
+                    )}
+                  </Row>
+                )}
+                <GithubTokenPanel token={ghDefault.data?.token ?? null} onChange={(token) => ghDefault.setData({ token })} />
+                <Row state="ok" title="Vault">
+                  SSH keys, upload keystores, their passwords and app Play keys are stored encrypted with VAULT_KEY (in .env), readable only by the builder. Keep a copy of
+                  VAULT_KEY: without it the stored keys cannot be opened.
+                </Row>
+                <Row state={data.keys.length ? 'ok' : 'warn'} title="Git keys">
+                  {data.keys.length ? `${data.keys.length} key${data.keys.length === 1 ? '' : 's'}` : 'None yet'} · {data.knownHosts.length} known host
+                  {data.knownHosts.length === 1 ? '' : 's'}.{' '}
+                  <Link href="/keys" className="font-medium text-brand underline">
+                    Git keys
+                  </Link>
+                </Row>
+                <Row state={data.apps.some((a) => a.repo?.access.state === 'failed' || githubIssue(a)) ? 'warn' : 'ok'} title="Apps">
+                  {data.apps.length === 0
+                    ? 'None yet.'
+                    : data.apps.map((a, i) => (
+                        <span key={a.id}>
+                          {i > 0 && ' · '}
+                          <Link href={`/apps/${a.id}/settings`} className="font-medium text-brand underline">
+                            {a.name}
+                          </Link>
+                          {a.repo?.access.state === 'failed' ? ' (repository unreachable)' : !a.repo ? ' (ZIP builds)' : githubIssue(a) ? ' (GitHub Actions needs a fix)' : ''}
                         </span>
-                      </p>
-                      {r.releaseNotes[0] && <p className="mt-1 line-clamp-3 text-[12px] text-body">{r.releaseNotes[0].text}</p>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+                      ))}
+                </Row>
+              </ul>
+            )}
+          </section>
 
-            <section aria-labelledby="versions" className="panel overflow-hidden">
-              <div className="px-5 pb-3 pt-5">
-                <h2 id="versions" className="text-[16px] font-bold text-ink">
-                  Version codes
-                </h2>
-                <p className="mt-2 text-[13px] text-body">
-                  Runs the console starts, on GitHub or on this server, get Google Play&apos;s highest code + 1 and never one handed out
-                  before. A release commit or a v-tag gets <span className="font-mono">run number + {data?.variables.versionCodeOffset ?? 1000}</span>.
-                  Fastlane refuses before uploading if Google Play is already ahead.
-                </p>
-              </div>
-              <dl className="divide-y divide-line border-t border-line text-[13px]">
-                <div className="flex items-baseline justify-between gap-4 px-5 py-2.5">
-                  <dt className="text-muted">Highest on Google Play</dt>
-                  <dd className="font-mono font-semibold text-ink tabular">{data?.play.snapshot?.highestVersionCode ?? '—'}</dd>
-                </div>
-                <div className="flex items-baseline justify-between gap-4 px-5 py-2.5">
-                  <dt className="text-muted">Next console run builds</dt>
-                  {data?.nextVersionCode ? (
-                    <dd className="font-mono font-semibold text-ink tabular">{data.nextVersionCode}</dd>
-                  ) : (
-                    <dd className="text-muted">once Google Play is readable</dd>
-                  )}
-                </div>
-                <div className="flex items-baseline justify-between gap-4 px-5 py-2.5">
-                  <dt className="text-muted">Next release commit or tag builds</dt>
-                  {data?.nextRunNumber ? (
-                    <dd className="font-mono font-semibold text-ink tabular">{data.nextRunNumber + data.variables.versionCodeOffset}</dd>
-                  ) : (
-                    <dd className="text-muted">once GitHub is connected</dd>
-                  )}
-                </div>
-                <div className="flex items-baseline justify-between gap-4 px-5 py-2.5">
-                  <dt className="text-muted">Release commits go to</dt>
-                  <dd className="font-semibold text-ship-ink">{data?.variables.defaultTrack ?? 'internal'}</dd>
-                </div>
-              </dl>
-              {data && !data.variables.readable && (
-                <p className="border-t border-line px-5 py-2.5 text-[12px] text-muted">Repository variables are not readable with this token; defaults shown.</p>
-              )}
-            </section>
-          </div>
+          <section aria-labelledby="how" className="panel overflow-hidden">
+            <div className="border-b border-line px-5 py-4 md:px-6">
+              <h2 id="how" className="text-[16px] font-bold text-ink">
+                What Release does
+              </h2>
+              <p className="mt-1 text-[13px] text-body">The six stages every run shows, in order; a build stops after the signed AAB.</p>
+            </div>
+            <ol className="divide-y divide-line">
+              {(Object.keys(STAGE_LABELS) as Array<keyof typeof STAGE_LABELS>).map((key, i) => (
+                <li key={key} className="grid grid-cols-[28px_minmax(0,1fr)] gap-3 px-5 py-3.5 md:px-6">
+                  <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-page text-[12px] font-bold text-muted ring-1 ring-line tabular">{i + 1}</span>
+                  <span>
+                    <span className="block text-[14px] font-semibold text-ink">{STAGE_LABELS[key]}</span>
+                    <span className="block text-[13px] text-body">{STAGE_TEXT[key]}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <p className="border-t border-line px-5 py-3.5 text-[12px] text-muted md:px-6">
+              Version codes: each run builds above Google Play’s highest, above every code this console built for the app, and not below pubspec.yaml’s build number.
+            </p>
+          </section>
         </div>
-
-        {data?.playCheck && (
-          <p className="mt-4 text-[12px] text-muted">
-            Last Play check from GitHub Actions: run #{data.playCheck.number}, {data.playCheck.state}, {clock(data.playCheck.at)} ·{' '}
-            <Link href={`/?run=${data.playCheck.runId}`} className="font-medium text-brand underline">
-              open
-            </Link>
-          </p>
-        )}
       </main>
-
-      <StartSheet
-        open={startOpen}
-        onClose={() => setStartOpen(false)}
-        defaultBranch={data?.repo?.defaultBranch ?? 'main'}
-        initialMode="validate"
-        blocked={blocked}
-        onStarted={(r) => {
-          if (r.runId) window.location.assign(`/?run=${r.runId}`);
-        }}
-      />
     </div>
   );
 }

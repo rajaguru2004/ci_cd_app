@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-30T07:14:58+00:00",
-  "title": "Design System: FusionHRM Android Pipeline",
+  "generatedAt": "2026-10-10T00:00:00+00:00",
+  "title": "Design System: Release Console",
   "extensions": {
     "colorMeta": {
       "page": {
@@ -563,11 +563,11 @@
     "typographyMeta": {
       "headline": {
         "displayName": "Headline",
-        "purpose": "Run header commit subject; Setup page title."
+        "purpose": "Page titles (Apps, Add an app, Settings, Git keys, Setup) and the run header commit subject."
       },
       "headline-sm": {
         "displayName": "Headline small",
-        "purpose": "Commit title without a run; connect panel; login title."
+        "purpose": "Commit title without a run; first-app panel; login title."
       },
       "title-sheet": {
         "displayName": "Sheet title",
@@ -575,11 +575,11 @@
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Section titles inside Setup panels."
+        "purpose": "App names on cards, panel headings, step titles, the Add an app tile."
       },
       "state-line": {
         "displayName": "State line",
-        "purpose": "Run state sentence beside the 44px ring, in its status ink tone."
+        "purpose": "Run state sentence beside the 44px ring in its status ink; top-bar name and app switcher at 700."
       },
       "body": {
         "displayName": "Body",
@@ -587,7 +587,7 @@
       },
       "body-sm": {
         "displayName": "Body small",
-        "purpose": "Run meta, rail notes, callouts, log toolbar controls."
+        "purpose": "Run meta, rail notes, callouts, blocker detail, done-step summaries, builder chip."
       },
       "label": {
         "displayName": "Label",
@@ -599,7 +599,7 @@
       },
       "meta": {
         "displayName": "Meta",
-        "purpose": "Hints, SHA-author-age lines, stage durations."
+        "purpose": "Hints, SHA-author-age lines, stage durations, rail pointers."
       },
       "caption": {
         "displayName": "Caption",
@@ -607,11 +607,11 @@
       },
       "mono": {
         "displayName": "Mono",
-        "purpose": "SHAs, refs, package id, tags, version codes."
+        "purpose": "SHAs, refs, package ids, tags, version codes, SSH URLs, fingerprints, ZIP names."
       },
       "mono-figure": {
         "displayName": "Mono figure",
-        "purpose": "AAB version and test count in Outputs."
+        "purpose": "The AAB version and the passed-test count in Outputs."
       },
       "log": {
         "displayName": "Log",
@@ -622,12 +622,12 @@
       {
         "name": "panel-rest",
         "value": "0 1px 3px rgb(16 24 40 / 0.04), 0 4px 16px -4px rgb(16 24 40 / 0.05)",
-        "purpose": "Every panel and the log pane."
+        "purpose": "Every panel, every app card and the log pane."
       },
       {
         "name": "overlay",
         "value": "0 24px 64px -12px rgb(15 23 42 / 0.28), 0 8px 24px -8px rgb(15 23 42 / 0.12)",
-        "purpose": "The sheet, over an ink scrim at 45% with 2px backdrop blur."
+        "purpose": "The sheet, over an ink scrim at 45% with 2px backdrop blur; the app switcher popover without a scrim."
       },
       {
         "name": "segment-selected",
@@ -693,6 +693,10 @@
       {
         "name": "xl",
         "value": "1280px"
+      },
+      {
+        "name": "play-tracks-container",
+        "value": "20rem (@xs container query)"
       }
     ]
   },
@@ -701,17 +705,25 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The one primary action per view: Start build, Re-run failed, the sheet's confirm.",
-      "html": "<button class=\"ds-btn ds-btn-primary\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M6 3l14 9-14 9V3z\"/></svg>Start build</button>",
+      "description": "The view's one primary: Release in the app strip, Add app, a step's Next, the sheet's confirm.",
+      "html": "<button class=\"ds-btn ds-btn-primary\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M6 3l14 9-14 9V3z\"/></svg>Release</button>",
       "css": ".ds-btn{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;border-radius:var(--radius-control,8px);font-size:14px;font-weight:600;white-space:nowrap;border:0;cursor:pointer;transition:background-color 160ms cubic-bezier(0.16,1,0.3,1),border-color 160ms cubic-bezier(0.16,1,0.3,1),color 160ms cubic-bezier(0.16,1,0.3,1),transform 120ms cubic-bezier(0.16,1,0.3,1);} .ds-btn:active{transform:scale(0.98);} .ds-btn:focus-visible{outline:2px solid var(--color-brand,#00358f);outline-offset:2px;} .ds-btn-primary{background:var(--color-brand,#00358f);color:#fff;} .ds-btn-primary:hover{background:var(--color-brand-dark,#002570);}"
     },
     {
       "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "Beside a primary: Cancel, Re-run all.",
-      "html": "<button class=\"ds-btn2\">Re-run all</button>",
+      "description": "Beside a primary: Build, Run again, Cancel run, Copy key, Cancel, Keep it.",
+      "html": "<button class=\"ds-btn2\">Run again</button>",
       "css": ".ds-btn2{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:8px;font-size:14px;font-weight:600;background:var(--color-card,#fff);color:var(--color-body,#334155);border:1px solid var(--color-line,#e2e8f0);cursor:pointer;transition:background-color 160ms cubic-bezier(0.16,1,0.3,1),border-color 160ms cubic-bezier(0.16,1,0.3,1),color 160ms cubic-bezier(0.16,1,0.3,1);} .ds-btn2:hover{background:var(--color-brand-wash,#eef3fc);border-color:color-mix(in srgb,#00358f 30%,#e2e8f0);color:var(--color-brand,#00358f);} .ds-btn2:focus-visible{outline:2px solid #00358f;outline-offset:2px;}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Only the confirming press of a destructive action: Disconnect, Delete app in the delete sheet.",
+      "html": "<button class=\"ds-btn-danger\">Delete Hive Sphere</button>",
+      "css": ".ds-btn-danger{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border:0;border-radius:8px;font-size:14px;font-weight:600;background:var(--color-fail-ink,#b91c1c);color:#fff;cursor:pointer;transition:background-color 160ms cubic-bezier(0.16,1,0.3,1),transform 120ms cubic-bezier(0.16,1,0.3,1);} .ds-btn-danger:hover{background:color-mix(in srgb,var(--color-fail-ink,#b91c1c) 86%,black);} .ds-btn-danger:active{transform:scale(0.98);} .ds-btn-danger:focus-visible{outline:2px solid var(--color-brand,#00358f);outline-offset:2px;}"
     },
     {
       "name": "Quiet Button",
@@ -738,12 +750,12 @@
       "css": ".ds-seg{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--color-page,#f4f6fc);border:1px solid var(--color-line-soft,#f1f5f9);max-width:420px;font-size:14px;} .ds-seg>label{flex:1 1 0;position:relative;display:flex;align-items:center;min-height:44px;padding:6px 12px;border-radius:8px;color:var(--color-muted,#5b6679);font-weight:500;cursor:pointer;transition:background-color 160ms cubic-bezier(0.16,1,0.3,1),color 160ms,box-shadow 160ms;} .ds-seg>label:hover{color:var(--color-ink,#0f172a);} .ds-seg>label:has(input:checked){background:#fff;color:var(--color-ink,#0f172a);box-shadow:0 1px 2px rgb(15 23 42/0.08),0 0 0 1px var(--color-line,#e2e8f0);} .ds-seg>label:has(input:focus-visible){outline:2px solid #00358f;outline-offset:1px;} .ds-seg input{position:absolute;opacity:0;pointer-events:none;} .ds-ship{color:var(--color-ship-ink,#b34700);}"
     },
     {
-      "name": "Ship Chips",
+      "name": "Chips",
       "kind": "chip",
       "refersTo": "chip-ship",
-      "description": "Release and tag flags on the rail and in the run header; the neutral chip marks a rehearsal.",
-      "html": "<span class=\"ds-chips\"><span class=\"ds-chip ds-chip-tag\">v2.4.0</span><span class=\"ds-chip ds-chip-ship\">release \u2192 production</span><span class=\"ds-chip ds-chip-plain\">rehearsal \u2192 beta</span></span>",
-      "css": ".ds-chips{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;flex-wrap:wrap;gap:6px;} .ds-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:9999px;font-size:11px;font-weight:600;} .ds-chip-ship{background:var(--color-ship-wash,#fff1e5);color:var(--color-ship-ink,#b34700);} .ds-chip-tag{background:var(--color-ship-wash,#fff1e5);color:var(--color-ship-ink,#b34700);border:1px solid color-mix(in srgb,#f66600 40%,transparent);font-family:var(--font-mono,ui-monospace,monospace);font-weight:500;} .ds-chip-plain{border:1px solid var(--color-line,#e2e8f0);color:var(--color-body,#334155);}"
+      "description": "The ship chip only once a release is on its Google Play track; the neutral chip for a release that stopped short, a rehearsal, and git tags.",
+      "html": "<span class=\"ds-chips\"><span class=\"ds-chip ds-chip-ship\">released \u2192 production</span><span class=\"ds-chip ds-chip-plain\">rehearsal \u2192 internal</span><span class=\"ds-chip ds-chip-plain ds-chip-tag\">v2.4.0</span></span>",
+      "css": ".ds-chips{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;flex-wrap:wrap;gap:6px;} .ds-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:9999px;font-size:11px;font-weight:600;} .ds-chip-ship{background:var(--color-ship-wash,#fff1e5);color:var(--color-ship-ink,#b34700);} .ds-chip-plain{border:1px solid var(--color-line,#e2e8f0);color:var(--color-body,#334155);} .ds-chip-tag{font-family:var(--font-mono,ui-monospace,monospace);font-weight:500;}"
     },
     {
       "name": "Stage Ring",
@@ -757,9 +769,17 @@
       "name": "Top Bar",
       "kind": "nav",
       "refersTo": "top-bar",
-      "description": "64px sticky bar: identity at the start, nav, Start build and sign-out at the end.",
-      "html": "<header class=\"ds-top\"><div class=\"ds-id\"><strong>FusionHRM Android</strong><span>com.fusionapps.fusionhrm</span></div><nav class=\"ds-nav\"><a href=\"#\" aria-current=\"page\">Pipeline</a><a href=\"#\">Setup<i class=\"ds-dot\"></i></a></nav></header>",
-      "css": ".ds-top{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;align-items:center;gap:24px;height:64px;padding:0 24px;background:rgb(255 255 255/0.95);border-bottom:1px solid var(--color-line,#e2e8f0);} .ds-id{display:flex;flex-direction:column;line-height:1.25;} .ds-id strong{font-size:15px;font-weight:700;color:var(--color-ink,#0f172a);} .ds-id span{font-family:var(--font-mono,ui-monospace,monospace);font-size:12px;color:var(--color-muted,#5b6679);} .ds-nav{margin-inline-start:auto;display:flex;gap:4px;} .ds-nav a{display:flex;align-items:center;height:40px;padding:0 12px;border-radius:8px;font-size:14px;font-weight:500;color:var(--color-muted,#5b6679);text-decoration:none;transition:background-color 200ms,color 200ms;} .ds-nav a:hover,.ds-nav a[aria-current=page]{background:var(--color-line-soft,#f1f5f9);color:var(--color-ink,#0f172a);} .ds-nav a:focus-visible{outline:2px solid #00358f;outline-offset:2px;} .ds-dot{margin-inline-start:8px;width:8px;height:8px;border-radius:9999px;background:var(--color-warn,#f59e0b);}"
+      "description": "64px sticky bar: mark, Release Console, the app switcher on app pages; builder chip, Apps / Git keys / Setup and sign-out at the end.",
+      "html": "<header class=\"ds-top\"><span class=\"ds-mark\"></span><strong>Release Console</strong><span class=\"ds-sep\">\u203a</span><button class=\"ds-switch\">Hive Sphere \u25be</button><a class=\"ds-bchip\" href=\"#\"><i></i>Building Fusion HRM #11</a><nav class=\"ds-nav\"><a href=\"#\" aria-current=\"page\">Apps</a><a href=\"#\">Git keys</a><a href=\"#\">Setup</a></nav></header>",
+      "css": ".ds-top{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;align-items:center;gap:10px;height:64px;padding:0 24px;background:rgb(255 255 255/0.95);border-bottom:1px solid var(--color-line,#e2e8f0);} .ds-mark{width:32px;height:32px;border-radius:8px;background:var(--color-brand,#00358f);} .ds-top strong{font-size:15px;font-weight:700;color:var(--color-ink,#0f172a);} .ds-sep{color:var(--color-faint,#94a3b8);} .ds-switch{height:40px;padding:0 8px;border:0;border-radius:8px;background:none;font:inherit;font-size:15px;font-weight:700;color:var(--color-ink,#0f172a);cursor:pointer;} .ds-switch:hover{background:var(--color-line-soft,#f1f5f9);} .ds-bchip{margin-inline-start:auto;display:flex;align-items:center;gap:6px;height:36px;padding:0 10px;border:1px solid var(--color-line,#e2e8f0);border-radius:9999px;font-size:13px;color:var(--color-run-ink,#1d4ed8);text-decoration:none;transition:background-color 200ms,border-color 200ms;} .ds-bchip i{width:8px;height:8px;border-radius:9999px;background:var(--color-run,#3b82f6);} .ds-bchip:hover{background:var(--color-brand-wash,#eef3fc);border-color:color-mix(in srgb,#00358f 30%,transparent);} .ds-nav{display:flex;gap:4px;} .ds-nav a{display:flex;align-items:center;height:40px;padding:0 12px;border-radius:8px;font-size:14px;font-weight:500;color:var(--color-muted,#5b6679);text-decoration:none;transition:background-color 200ms,color 200ms;} .ds-nav a:hover,.ds-nav a[aria-current=page]{background:var(--color-line-soft,#f1f5f9);color:var(--color-ink,#0f172a);} .ds-nav a:focus-visible,.ds-switch:focus-visible,.ds-bchip:focus-visible{outline:2px solid #00358f;outline-offset:2px;}"
+    },
+    {
+      "name": "App Card",
+      "kind": "card",
+      "refersTo": "app-card",
+      "description": "An app on the overview: its latest run's ring as avatar, branch \u00b7 repo, latest run, Play Tracks, amber attention with Fix, Build / Release / Open.",
+      "html": "<article class=\"ds-card\"><header><span class=\"ds-av\"></span><div><h3>Fusion HRM</h3><p class=\"ds-mono\">com.fusionapps.fusionhrm</p></div></header><p class=\"ds-line\"><span class=\"ds-mono\">main</span> \u00b7 github.com/org/hrm</p><p class=\"ds-line\"><b>#10 Release \u2192 internal</b> <span class=\"ds-ok\">passed</span> \u00b7 16 min ago</p><div class=\"ds-att\">\u26a0 No Google Play key: releases cannot upload until one is added. <a href=\"#\">Fix</a></div><footer><button class=\"ds-b2\">Build</button><button class=\"ds-b2\">Release</button><a class=\"ds-open\" href=\"#\">Open \u2192</a></footer></article>",
+      "css": ".ds-card{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);max-width:420px;background:var(--color-card,#fff);border:1px solid var(--color-line,#e2e8f0);border-radius:20px;box-shadow:0 1px 3px rgb(16 24 40/0.04),0 4px 16px -4px rgb(16 24 40/0.05);font-size:13px;color:var(--color-body,#334155);} .ds-card>header{display:flex;gap:14px;padding:20px 24px 0;} .ds-av{width:44px;height:44px;border-radius:9999px;border:4px solid var(--color-ok,#10b981);box-sizing:border-box;} .ds-card h3{margin:0;font-size:16px;font-weight:700;color:var(--color-ink,#0f172a);} .ds-mono{margin:0;font-family:var(--font-mono,ui-monospace,monospace);font-size:12px;color:var(--color-muted,#5b6679);} .ds-line{margin:12px 24px 0;} .ds-line b{font-weight:500;} .ds-ok{color:var(--color-ok-ink,#047857);} .ds-att{margin:16px 24px 20px;padding:10px 12px;border-radius:8px;background:var(--color-warn-wash,#fffbeb);color:var(--color-ink,#0f172a);} .ds-att a{font-weight:600;color:var(--color-brand,#00358f);} .ds-card footer{display:flex;gap:8px;padding:12px 24px;border-top:1px solid var(--color-line,#e2e8f0);} .ds-b2{height:40px;padding:0 14px;border:1px solid var(--color-line,#e2e8f0);border-radius:8px;background:#fff;font:inherit;font-size:14px;font-weight:600;color:var(--color-body,#334155);cursor:pointer;} .ds-b2:hover{background:var(--color-brand-wash,#eef3fc);color:var(--color-brand,#00358f);} .ds-open{margin-inline-start:auto;display:flex;align-items:center;padding:0 10px;border-radius:8px;font-weight:500;color:var(--color-muted,#5b6679);text-decoration:none;} .ds-open:hover{background:var(--color-line-soft,#f1f5f9);color:var(--color-ink,#0f172a);} .ds-b2:focus-visible,.ds-open:focus-visible{outline:2px solid #00358f;outline-offset:2px;}"
     },
     {
       "name": "Log Pane",
@@ -770,30 +790,35 @@
       "css": ".ds-log{overflow:hidden;border-radius:12px;background:var(--color-log,#0b1220);color:var(--color-log-text,#d6deeb);box-shadow:0 1px 3px rgb(16 24 40/0.04),0 4px 16px -4px rgb(16 24 40/0.05);max-width:520px;} .ds-log-bar{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--color-log-raised,#111a2e);border-bottom:1px solid var(--color-log-line,#1e293b);font-size:13px;color:var(--color-log-muted,#8391a8);} .ds-log-bar strong{color:#fff;font-weight:600;} .ds-log-body{padding:4px 0;font-family:var(--font-mono,ui-monospace,monospace);font-size:12.5px;line-height:1.6;} .ds-log-body>div{display:grid;grid-template-columns:3.5rem 1fr;gap:12px;padding:0 8px;} .ds-log-body>div:hover{background:var(--color-log-raised,#111a2e);} .ds-log-body i{font-style:normal;text-align:end;color:var(--color-log-muted,#8391a8);font-variant-numeric:tabular-nums;} .ds-cmd{color:var(--color-log-group,#93c5fd);} .ds-err{background:#2a1317;color:var(--color-log-error,#fca5a5);}"
     },
     {
-      "name": "ZIP Drop Zone",
-      "kind": "input",
-      "refersTo": "field",
-      "description": "The start sheet's file field for a source ZIP (GitHub \u2192 Code \u2192 Download ZIP): dashed at rest, brand on hover, Selection Wash while a file is dragged over, solid once chosen; a 6px brand bar counts the upload.",
-      "html": "<label class=\"ds-drop\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M16 22h2a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v18\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><circle cx=\"10\" cy=\"20\" r=\"2\"/><path d=\"M10 7V6\"/><path d=\"M10 12v-1\"/><path d=\"M10 18v-2\"/></svg><span><b>Drop the ZIP here, or choose it</b><small>On GitHub: the mobile repository \u2192 Code \u2192 Download ZIP</small></span><input type=\"file\" accept=\".zip\" hidden></label><div class=\"ds-progress\"><i style=\"width:42%\"></i></div>",
-      "css": ".ds-drop{display:flex;align-items:center;gap:16px;min-height:96px;padding:16px;border:1px dashed #94a3b8;border-radius:12px;background:#f4f6fc;color:#5b6679;cursor:pointer;transition:border-color 200ms cubic-bezier(0.16,1,0.3,1),background-color 200ms cubic-bezier(0.16,1,0.3,1);font-family:var(--font-sans,'Montserrat Variable',Montserrat,system-ui,sans-serif)}.ds-drop:hover{border-color:#00358f}.ds-drop b{display:block;font-weight:500;color:#0f172a;font-size:14px}.ds-drop small{display:block;font-size:12px;color:#5b6679}.ds-progress{margin-top:12px;height:6px;border-radius:999px;background:#f1f5f9;overflow:hidden}.ds-progress i{display:block;height:100%;border-radius:999px;background:#00358f}"
+      "name": "Readiness List",
+      "kind": "custom",
+      "refersTo": "check-row",
+      "description": "Settings-only per-check list: Token/Repository/Workflow/Secrets in \"Where builds run\". ok = Pass Green check; not checked yet = Run Blue dashed; anything else = Attention Amber triangle with an inline secondary fix button.",
+      "html": "<ul class=\"ds-checks\"><li><svg class=\"ds-ico\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"var(--color-ok,#10b981)\" stroke-width=\"2.2\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M8 12l3 3 5-6\"/></svg><div><p class=\"ds-title\">Token</p><p class=\"ds-detail\">Reads the repository.</p></div></li><li><svg class=\"ds-ico\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"var(--color-run,#3b82f6)\" stroke-width=\"2.2\" stroke-dasharray=\"3 3\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/></svg><div><p class=\"ds-title\">Repository</p><p class=\"ds-detail\">Not checked yet.</p></div></li><li><svg class=\"ds-ico\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"var(--color-warn,#f59e0b)\" stroke-width=\"2.2\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 8v5M12 16h.01\"/></svg><div><p class=\"ds-title\">Workflow</p><p class=\"ds-detail\">Not on the default branch yet.</p><button type=\"button\" class=\"ds-btn2 ds-fix\">Add the workflow</button></div></li></ul>",
+      "css": ".ds-checks{font-family: var(--font-sans, 'Montserrat Variable', Montserrat, system-ui, sans-serif);list-style:none;margin:0;padding:0;border:1px solid var(--color-line,#e2e8f0);border-radius:12px;} .ds-checks>li{display:flex;gap:12px;padding:14px 20px;border-bottom:1px solid var(--color-line,#e2e8f0);} .ds-checks>li:last-child{border-bottom:0;} .ds-ico{flex-shrink:0;margin-top:2px;} .ds-title{margin:0;font-size:14px;font-weight:600;color:var(--color-ink,#0f172a);} .ds-detail{margin:2px 0 0;max-width:60ch;font-size:13px;color:var(--color-body,#334155);} .ds-fix{margin-top:8px;height:36px;padding:0 14px;border:1px solid var(--color-line,#e2e8f0);border-radius:8px;background:#fff;font:inherit;font-size:14px;font-weight:600;color:var(--color-body,#334155);cursor:pointer;} .ds-fix:hover{background:var(--color-brand-wash,#eef3fc);color:var(--color-brand,#00358f);}"
     }
   ],
   "narrative": {
-    "northStar": "The Branch Log With Its Pipeline Attached",
-    "overview": "The console is the commit history of a branch, and every commit wears its run. The page reads like a ledger that happens to be live: a tinted page, white hairline panels, slate ink, one deep blue for action and selection. The world is borrowed on purpose. It is the Fusion HRM web console's default preset (`CRM/human-resource-management/apps/frontend/DESIGN.md`), carried over so the pipeline reads as part of the same toolset; where this build departs from that preset, the departure is for contrast or for meaning and is recorded below.\n\nDensity is operational, not dashboard. Body copy sits at 14px, most meta at 13px and 12px, and the page spends its colour on state rather than decoration. Status hues draw the marks (ring arcs, strip fills, state glyphs); words stay in ink or in the darker ink tone of their status. Signal Orange appears only where something shipped: `release:` commits, v-tags, the production track, a ring whose core has gone orange. The one dark surface is the Geist Mono log pane, because that is where the machine talks.\n\nMotion is scarce and tied to truth. One 200ms ease-out carries state changes; the arc of a running stage carries a slow travelling highlight; when nothing is running, nothing on the page moves.",
+    "northStar": "Every App's Branch Log, With Its Pipeline Attached",
+    "overview": "The console holds several Android apps, and each one wears its latest run. On the Apps overview an app is a card whose face is its six-stage ring; inside an app, the console is the commit history of a branch where every commit carries its run. The page reads like a ledger that happens to be live: a tinted page, white hairline panels, slate ink, one deep blue for action and selection. The world is borrowed on purpose. It is the Fusion HRM web console's default preset (`CRM/human-resource-management/apps/frontend/DESIGN.md`), carried over so the console reads as part of the same toolset; where this build departs from that preset, the departure is for contrast or for meaning and is recorded below.\n\nDensity is operational, not dashboard. Body copy sits at 14px, most meta at 13px and 12px, and the page spends its colour on state rather than decoration. Status hues draw the marks (ring arcs, strip fills, state glyphs); words stay in ink or in the darker ink tone of their status. Signal Orange appears only where something shipped: a ring whose core has gone orange, the \"released \u2192 track\" chip, the production track, the release callout in Outputs. Anything that needs a person to act is amber. The one dark surface is the Geist Mono log pane, because that is where the machine talks.\n\nMotion is scarce and tied to truth. One 200ms ease-out carries state changes; the arc of a running stage carries a slow travelling highlight; when nothing is running, nothing on the page moves.",
     "keyCharacteristics": [
       "Fusion HRM default preset: tinted page, white 20px-radius hairline panels, Montserrat 14px body.",
-      "Deep Ledger Blue only for primary action, links, focus and the active selection.",
-      "The six-arc stage ring is the signature; the stage strip is the same ring unrolled.",
+      "Deep Ledger Blue only for primary action, links, focus and the active selection; one primary per view.",
+      "The six-arc stage ring is the signature: an app's avatar, a rail node, the run header's mark; the stage strip is the same ring unrolled.",
       "Status colour draws glyphs and arcs; status words use the darker ink tones.",
-      "Signal Orange is reserved for ship moments; attention states use amber.",
+      "Signal Orange is reserved for ship moments; attention and blockers use amber.",
       "One dark Geist Mono log pane; everything else is light.",
       "Only the running arc animates continuously; all state changes use one 200ms ease-out."
     ],
     "rules": [
       {
         "name": "The Ship-Only Orange Rule",
-        "body": "Signal Orange marks only a release commit, a v-tag, the production track, or a run that reached Google Play. Warnings, missing setup and every other call for attention use the amber `warn` set. A rehearsal release keeps an ink ring core, because nothing shipped.",
+        "body": "Signal Orange marks only a run that reached Google Play, the production track, and the brand mark's last arc. A release that stopped short and a rehearsal wear the neutral chip and keep an ink ring core, because nothing shipped. Git tags are neutral chips: a tag starts nothing here.",
+        "section": "colors"
+      },
+      {
+        "name": "The Amber Asks Rule",
+        "body": "Anything a person must fix (a repository refusing the key, Google Play refusing the key, a missing Play key, a pull that failed) is an amber triangle beside ink words, on `warn-wash` or in a list row, with the way out beside it. Amber never means \"shipped\" and orange never means \"attention\".",
         "section": "colors"
       },
       {
@@ -803,22 +828,22 @@
       },
       {
         "name": "The Status-Means-Run-State Rule",
-        "body": "`ok`, `fail`, `run`, `warn` and `idle` express GitHub's state for a stage, a run or a setup check. They are never decoration and never stand in for the brand.",
+        "body": "`ok`, `fail`, `run`, `warn` and `idle` express the state of a stage, a run, a step or a check. They are never decoration and never stand in for the brand. The danger button borrows `fail-ink` because removing something is the one failure a person chooses.",
         "section": "colors"
       },
       {
         "name": "The One Dark Pane Rule",
-        "body": "The log pane is the only dark surface. Everything else, including overlays, is white on tinted paper.",
+        "body": "The log pane is the only dark surface. Everything else, including overlays and popovers, is white on tinted paper.",
         "section": "colors"
       },
       {
         "name": "The Mono-Is-Machine Rule",
-        "body": "Geist Mono is only for strings a machine produced and a person may copy: SHAs, refs, package ids, version codes, log lines. Headings, labels and state words stay in Montserrat.",
+        "body": "Geist Mono is only for strings a machine produced and a person may copy: SHAs, refs, package ids, version codes, URLs, fingerprints, keys, log lines. Headings, labels and state words stay in Montserrat.",
         "section": "typography"
       },
       {
         "name": "The Opt-In Figures Rule",
-        "body": "Tabular figures are off by default (`tnum` 0 on the body, a departure from the HRM preset) and switched on per element (`.tabular`) where numbers update in place: durations, elapsed time, version codes, line numbers.",
+        "body": "Tabular figures are off by default (`tnum` 0 on the body, a departure from the HRM preset) and switched on per element (`.tabular`) where numbers update in place: durations, elapsed time, version codes, line numbers, step numbers, characters left.",
         "section": "typography"
       },
       {
@@ -828,24 +853,26 @@
       },
       {
         "name": "The Static Panels Don't Lift Rule",
-        "body": "Panels are information, not buttons; they get no hover shadow or transform. Hover feedback is a fill change (`line-soft` or `brand-wash`).",
+        "body": "Panels and cards are information, not buttons; they get no hover shadow or transform. Hover feedback is a fill or border change (`line-soft`, `brand-wash`, or a brand border on dashed tiles).",
         "section": "elevation"
       }
     ],
     "dos": [
       "Do colour words by role (`ink`, `body`, `muted`) and print status words in the `*-ink` tone; let `ok`, `fail`, `run`, `warn` draw only marks.",
-      "Do use the `warn` set (amber glyph, `warn-wash` fill, ink words) for missing setup, a workflow not on main and the Setup dot.",
+      "Do use the `warn` set (amber triangle, `warn-wash` fill, ink words, a way out beside it) for every blocker and missing piece of setup.",
+      "Do keep one primary per view: Release in the app strip, Add app on the overview, the current step's action, the sheet's confirm.",
       "Do reuse the ring's six-slot geometry (60\u00b0 slots, 12\u00b0 gaps, round caps) and the shared arc colour map wherever a run's stages are drawn.",
-      "Do keep every state change at 200ms ease-out-expo (`cubic-bezier(0.16, 1, 0.3, 1)`) and honour reduced motion by removing the sweep, the sheet rise and the strip fill.",
-      "Do put machine strings (SHA, ref, version code, tag, log) in Geist Mono and switch on tabular figures for numbers that tick.",
-      "Do keep hit targets at 40px or more (44px for segmented options, rail controls and log step rows)."
+      "Do keep every state change at 200ms ease-out-expo (`cubic-bezier(0.16, 1, 0.3, 1)`), controls at 160ms, and honour reduced motion by removing the sweep, the sheet rise and the strip fill.",
+      "Do put machine strings (SHA, ref, package, version code, tag, URL, fingerprint, key, log) in Geist Mono and switch on tabular figures for numbers that tick.",
+      "Do keep hit targets at 40px or more (44px for segmented options, switcher rows, rail controls and log step rows)."
     ],
     "donts": [
-      "Don't use Signal Orange for anything but a shipped build, a release commit, a v-tag or the production track.",
+      "Don't use Signal Orange for anything but a run that reached Google Play, the production track, or the brand mark.",
       "Don't set words in the bright status hues (`ok`, `fail`, `run`, `warn`) on white or on their washes.",
+      "Don't use the danger fill for anything but the confirming press of a destructive action.",
       "Don't add a second dark surface; the log pane is the only one.",
       "Don't animate anything continuously except the running arc; nothing moves when nothing is running.",
-      "Don't add hover lift or shadow change to static panels."
+      "Don't add hover lift or shadow change to static panels or cards."
     ]
   }
 }

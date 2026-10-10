@@ -2,7 +2,7 @@
   "name": "mobile-ci-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Pipeline console UI for the FusionHRM Android release pipeline.",
+  "description": "Release console UI: apps, keys and runs, from git to Google Play.",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",

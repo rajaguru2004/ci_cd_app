@@ -1,28 +1,33 @@
-import { checkParams, resolvePlan } from './plan';
+import { checkParams, chooseVersionCode, resolvePlan } from './plan';
 
 describe('checkParams', () => {
-  it('defaults a build to the internal track, rolled out, no rehearsal', () => {
-    expect(checkParams({ mode: 'build', versionCode: 1001 })).toEqual({
-      mode: 'build', track: 'internal', releaseNotes: '', releaseStatus: 'completed', versionName: '', versionCode: 1001, rehearsal: false,
+  it('defaults a build to the internal track, rolled out, no rehearsal, no pinned version code', () => {
+    expect(checkParams({ mode: 'build' })).toEqual({
+      mode: 'build', track: 'internal', releaseNotes: '', releaseStatus: 'completed', versionName: '', versionCode: null, rehearsal: false,
     });
   });
 
   it('requires notes for a release and caps them at 500 characters', () => {
-    expect(() => checkParams({ mode: 'release', versionCode: 5, releaseNotes: '  ' })).toThrow('Release notes are required');
-    expect(() => checkParams({ mode: 'release', versionCode: 5, releaseNotes: 'a'.repeat(501) })).toThrow('allows 500');
-    expect(checkParams({ mode: 'release', versionCode: 5, releaseNotes: 'a'.repeat(500) }).releaseNotes).toHaveLength(500);
+    expect(() => checkParams({ mode: 'release', releaseNotes: '  ' })).toThrow('Release notes are required');
+    expect(() => checkParams({ mode: 'release', releaseNotes: 'a'.repeat(501) })).toThrow('allows 500');
+    expect(checkParams({ mode: 'release', releaseNotes: 'a'.repeat(500) }).releaseNotes).toHaveLength(500);
   });
 
-  it('only rehearses releases', () => {
-    expect(checkParams({ mode: 'build', versionCode: 5, rehearsal: true }).rehearsal).toBe(false);
-    expect(checkParams({ mode: 'release', versionCode: 5, releaseNotes: 'x', rehearsal: true }).rehearsal).toBe(true);
+  it('only rehearses releases, and drops notes from a build', () => {
+    expect(checkParams({ mode: 'build', rehearsal: true, releaseNotes: 'x' })).toMatchObject({ rehearsal: false, releaseNotes: '' });
+    expect(checkParams({ mode: 'release', releaseNotes: 'x', rehearsal: true }).rehearsal).toBe(true);
+  });
+
+  it('keeps a pinned version code', () => {
+    expect(checkParams({ mode: 'build', versionCode: 1012 }).versionCode).toBe(1012);
+    expect(checkParams({ mode: 'build', versionCode: null }).versionCode).toBeNull();
   });
 
   it.each([
-    [{ mode: 'deploy', versionCode: 1 }, 'mode must be'],
-    [{ mode: 'build', track: 'staging', versionCode: 1 }, 'track must be'],
-    [{ mode: 'build', releaseStatus: 'halted', versionCode: 1 }, 'releaseStatus'],
-    [{ mode: 'build', versionName: '1.2', versionCode: 1 }, 'MAJOR.MINOR.PATCH'],
+    [{ mode: 'deploy' }, 'mode must be'],
+    [{ mode: 'build', track: 'staging' }, 'track must be'],
+    [{ mode: 'build', releaseStatus: 'halted' }, 'releaseStatus'],
+    [{ mode: 'build', versionName: '1.2' }, 'MAJOR.MINOR.PATCH'],
     [{ mode: 'build', versionCode: 0 }, 'versionCode'],
     [{ mode: 'build', versionCode: 1.5 }, 'versionCode'],
   ])('refuses %j', (input, message) => {
@@ -30,22 +35,40 @@ describe('checkParams', () => {
   });
 });
 
-describe('resolvePlan', () => {
-  const params = checkParams({ mode: 'release', track: 'beta', versionCode: 1012, releaseNotes: 'Hi', releaseStatus: 'draft' });
+describe('chooseVersionCode', () => {
+  it('builds above Google Play, above this console\'s own codes and not below pubspec', () => {
+    expect(chooseVersionCode({ pinned: null, playHighest: 1009, usedHighest: 1007, pubspecBuild: 9 })).toEqual({ code: 1010, from: "Google Play's highest, 1009, + 1" });
+    expect(chooseVersionCode({ pinned: null, playHighest: 9, usedHighest: 1012, pubspecBuild: 9 })).toEqual({ code: 1013, from: 'the last code this console built for the app, 1012, + 1' });
+    expect(chooseVersionCode({ pinned: null, playHighest: null, usedHighest: 0, pubspecBuild: 13 })).toEqual({ code: 13, from: "pubspec.yaml's build number, 13" });
+    expect(chooseVersionCode({ pinned: null, playHighest: null, usedHighest: 0, pubspecBuild: null }).code).toBe(1);
+  });
 
-  it('takes the version name from pubspec.yaml and the commit from the ZIP', () => {
-    expect(resolvePlan(params, '1.0.2', 'abc', 'src.zip')).toMatchObject({
-      mode: 'release', trigger: 'upload', track: 'beta', releaseStatus: 'draft', versionName: '1.0.2', versionCode: 1012,
-      publish: true, rehearsal: false, releaseNotes: 'Hi', commit: 'abc', ref: 'src.zip',
+  it("names Google Play when it and this console's own codes agree", () => {
+    expect(chooseVersionCode({ pinned: null, playHighest: 1009, usedHighest: 1009, pubspecBuild: 9 })).toEqual({ code: 1010, from: "Google Play's highest, 1009, + 1" });
+  });
+
+  it('keeps a pinned code', () => {
+    expect(chooseVersionCode({ pinned: 77, playHighest: 1009, usedHighest: 1, pubspecBuild: 2 })).toEqual({ code: 77, from: 'pinned when the run was started' });
+  });
+});
+
+describe('resolvePlan', () => {
+  const params = checkParams({ mode: 'release', track: 'beta', releaseNotes: 'Hi', releaseStatus: 'draft' });
+  const base = { versionCode: { code: 1012, from: 'x' }, trigger: 'git' as const, sha: 'abc', ref: 'main', packageName: 'com.x.app' };
+
+  it('takes the version name from pubspec.yaml and records the commit, the branch and the package', () => {
+    expect(resolvePlan(params, { ...base, pubspecVersion: '1.0.2' })).toMatchObject({
+      mode: 'release', trigger: 'git', track: 'beta', releaseStatus: 'draft', versionName: '1.0.2', versionCode: 1012,
+      publish: true, rehearsal: false, releaseNotes: 'Hi', commit: 'abc', ref: 'main', packageName: 'com.x.app',
     });
   });
 
   it('prefers an override from the start sheet', () => {
-    expect(resolvePlan({ ...params, versionName: '9.9.9' }, '1.0.2', null, 'x.zip').versionName).toBe('9.9.9');
+    expect(resolvePlan({ ...params, versionName: '9.9.9' }, { ...base, pubspecVersion: '1.0.2' }).versionName).toBe('9.9.9');
   });
 
   it('refuses a project without a usable version', () => {
-    expect(() => resolvePlan(params, null, null, 'x.zip')).toThrow('(none)');
-    expect(() => resolvePlan(params, '1.0', null, 'x.zip')).toThrow("'1.0'");
+    expect(() => resolvePlan(params, { ...base, pubspecVersion: null })).toThrow('(none)');
+    expect(() => resolvePlan(params, { ...base, pubspecVersion: '1.0' })).toThrow("'1.0'");
   });
 });

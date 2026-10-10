@@ -1,14 +1,14 @@
-# Google Play release automation for the FusionHRM Android app.
+# Google Play release automation for any app the release console manages.
 #
-# GitHub Actions (.github/workflows/release.yml) tests the code and builds the signed AAB;
-# these lanes only talk to Google Play:
+# The console's builder tests the code and builds the signed AAB; these lanes only talk to
+# Google Play, for the app the run names:
 #
-#   fastlane android deploy       upload the CI-built AAB to a Play track
+#   fastlane android deploy       upload the built AAB to a Play track
 #   fastlane android play_status  check the service-account key and read each track's codes
 #
-# Both read the service-account key from PLAY_SERVICE_ACCOUNT_JSON (a GitHub Actions secret)
-# and write a small JSON report next to this file, which CI uploads as an artifact for the
-# pipeline console to read.
+# Both read the app's package from PLAY_PACKAGE_NAME and its service-account key from
+# PLAY_SERVICE_ACCOUNT_JSON (handed over by the builder for this one step), and write a small
+# JSON report next to this file for the console to read.
 #
 # PLAY_VALIDATE_ONLY=true makes `deploy` a dress rehearsal: the bundle is uploaded into an edit
 # and Google validates the whole release (signature, version code, track, notes), but the edit
@@ -19,16 +19,16 @@ require 'time'
 opt_out_usage
 default_platform(:android)
 
-PACKAGE_NAME = 'com.fusionapps.fusionhrm'
 TRACKS = %w[internal alpha beta production].freeze
 RELEASE_STATUSES = %w[completed draft].freeze
 # Repository root: GitHub sets GITHUB_WORKSPACE; locally, the folder above fastlane/.
 ROOT = ENV.fetch('GITHUB_WORKSPACE') { File.expand_path('..', __dir__) }
 
 platform :android do
-  desc 'Upload the AAB built by CI to a Google Play track'
+  desc 'Upload the AAB the console built to a Google Play track'
   lane :deploy do
     key = play_key!
+    package_name = package_name!
     track = required_env('PLAY_TRACK')
     UI.user_error!("PLAY_TRACK '#{track}' is not one of: #{TRACKS.join(', ')}.") unless TRACKS.include?(track)
     status = ENV.fetch('PLAY_RELEASE_STATUS', 'completed')
@@ -41,16 +41,16 @@ platform :android do
 
     # Play refuses a version code it has seen, but only after the whole bundle is uploaded
     # and with a message that does not say what to change. Refuse first, and say it.
-    highest = track_version_codes(key).values.flatten.max
+    highest = track_version_codes(key, package_name).values.flatten.max
     if highest && version_code <= highest
       UI.user_error!(
         "Google Play already has versionCode #{highest}; this build is #{version_code}. " \
-        'Raise the repository variable VERSION_CODE_OFFSET so the next run numbers land above it, then run again.'
+        'Something uploaded in between: run the release again and the console picks the next free code.'
       )
     end
 
     upload = {
-      package_name: PACKAGE_NAME,
+      package_name: package_name,
       json_key_data: key,
       track: track,
       release_status: status,
@@ -71,7 +71,7 @@ platform :android do
     upload_to_play_store(upload)
 
     write_report('release-info.json', {
-      packageName: PACKAGE_NAME,
+      packageName: package_name,
       track: track,
       releaseStatus: status,
       versionName: ENV['VERSION_NAME'],
@@ -79,7 +79,7 @@ platform :android do
       previousHighestVersionCode: highest,
       validatedOnly: validate_only,
       uploadedAt: Time.now.utc.iso8601,
-      storeUrl: "https://play.google.com/store/apps/details?id=#{PACKAGE_NAME}"
+      storeUrl: "https://play.google.com/store/apps/details?id=#{package_name}"
     })
     if validate_only
       UI.success("Google Play validated versionCode #{version_code} for the #{track} track; nothing was published.")
@@ -91,21 +91,22 @@ platform :android do
   desc "Check the Play service-account key and read every track's version codes"
   lane :play_status do
     key = play_key!
+    package_name = package_name!
     validate_play_store_json_key(json_key_data: key)
-    tracks = track_version_codes(key)
+    tracks = track_version_codes(key, package_name)
     highest = tracks.values.flatten.max
     next_code = ENV['VERSION_CODE'].to_s.empty? ? nil : Integer(ENV['VERSION_CODE'])
     if highest && next_code && next_code <= highest
-      UI.important("This run's version code #{next_code} is not above Play's #{highest}: raise VERSION_CODE_OFFSET before releasing.")
+      UI.important("This run's version code #{next_code} is not above Play's #{highest}.")
     end
     write_report('play-status.json', {
-      packageName: PACKAGE_NAME,
+      packageName: package_name,
       checkedAt: Time.now.utc.iso8601,
       tracks: tracks,
       highestVersionCode: highest,
       runVersionCode: next_code
     })
-    UI.success("Google Play key works for #{PACKAGE_NAME}; highest versionCode: #{highest || 'none'}.")
+    UI.success("Google Play key works for #{package_name}; highest versionCode: #{highest || 'none'}.")
   end
 end
 
@@ -113,11 +114,17 @@ def play_key!
   key = ENV['PLAY_SERVICE_ACCOUNT_JSON'].to_s
   if key.strip.empty?
     UI.user_error!(
-      'The PLAY_SERVICE_ACCOUNT_JSON secret is missing. Upload the Google Play service-account key on the ' \
-      "console's Setup page, or add it under GitHub > Settings > Secrets and variables > Actions."
+      "There is no Google Play key for this app. Upload the service-account JSON in the app's settings on the " \
+      "console, or mount the console's default key."
     )
   end
   key
+end
+
+def package_name!
+  name = required_env('PLAY_PACKAGE_NAME')
+  UI.user_error!("PLAY_PACKAGE_NAME '#{name}' is not an Android package name.") unless name.match?(/\A[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+\z/)
+  name
 end
 
 def required_env(name)
@@ -128,10 +135,10 @@ end
 
 # Version codes per track. A track that has never had a release answers with an error on
 # some accounts; it counts as empty rather than failing the lane.
-def track_version_codes(key)
+def track_version_codes(key, package_name)
   TRACKS.to_h do |track|
     codes = begin
-      google_play_track_version_codes(package_name: PACKAGE_NAME, track: track, json_key_data: key)
+      google_play_track_version_codes(package_name: package_name, track: track, json_key_data: key)
     rescue StandardError => e
       UI.important("#{track}: #{e.message}")
       []

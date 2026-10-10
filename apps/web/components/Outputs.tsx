@@ -60,19 +60,21 @@ export function Outputs({ detail }: { detail: RunDetail }) {
   const testsState = stateOf(detail, 'tests');
   const playState = stateOf(detail, 'play');
   const stopped = detail.run.state === 'failed' || detail.run.state === 'cancelled';
+  const track = detail.plan?.track ?? detail.run.track ?? 'default';
 
   return (
     <div className="panel divide-y divide-line overflow-hidden">
-      {mode !== 'validate' && (
-        <Section title="Signed AAB" state={aabState}>
+      <Section title="Signed AAB" state={aabState}>
           {detail.build ? (
             <>
               <p className="font-mono text-[22px] font-semibold leading-tight text-ink tabular">
                 {detail.build.versionName}
                 <span className="ms-2 text-[15px] font-medium text-muted">({detail.build.versionCode})</span>
               </p>
+              {detail.plan?.versionCodeFrom && <p className="mt-1 text-[12px] text-muted">Version code: {detail.plan.versionCodeFrom}.</p>}
               <dl className="mt-3">
                 <Fact term="Size">{bytes(detail.build.sizeBytes)}</Fact>
+                <Fact term="Signed by">{detail.build.signedBy === 'console' ? 'the console (upload key)' : 'the project (key.properties)'}</Fact>
                 <Fact term="SHA-256">
                   <CopyValue value={detail.build.sha256} shown={`${detail.build.sha256.slice(0, 12)}…`} />
                 </Fact>
@@ -91,23 +93,21 @@ export function Outputs({ detail }: { detail: RunDetail }) {
               </div>
             </>
           ) : aabState === 'running' ? (
-            waiting('Gradle is building and signing the bundle.')
+            waiting('Gradle is building the bundle; the console signs it next.')
           ) : stopped || aabState === 'skipped' || aabState === 'cancelled' ? (
             waiting('No bundle: the run stopped before this stage.')
           ) : aabState === 'failed' ? (
             waiting('The build failed; its log is in the Signed AAB stage.')
           ) : (
-            waiting('The bundle appears here once the tests pass and Gradle signs it.')
+            waiting('The bundle appears here once the tests pass and it is built and signed.')
           )}
         </Section>
-      )}
 
-      {mode !== 'validate' && (
-        <Section title="Tests" state={testsState}>
+      <Section title="Tests" state={testsState}>
           {detail.tests ? (
             <>
               <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1 tabular">
-                <span className="text-[22px] font-semibold text-ink">{detail.tests.passed}</span>
+                <span className="font-mono text-[22px] font-semibold leading-tight text-ink">{detail.tests.passed}</span>
                 <span className="text-[13px] text-ok-ink">passed</span>
                 <span className={clsx('text-[13px]', detail.tests.failed ? 'font-semibold text-fail-ink' : 'text-muted')}>
                   {detail.tests.failed} failed
@@ -144,40 +144,15 @@ export function Outputs({ detail }: { detail: RunDetail }) {
             waiting('Analysis and unit and widget tests run first.')
           )}
         </Section>
-      )}
 
       <Section title="Google Play" state={mode === 'build' ? 'skipped' : playState}>
         {mode === 'build' ? (
           waiting('Not part of this run: a build stops at the AAB. Start a release to publish it.')
-        ) : mode === 'validate' ? (
-          detail.playStatus ? (
-            <>
-              <p className="text-[13px] text-body">The key works for {detail.playStatus.packageName}.</p>
-              <table className="mt-3 w-full text-[13px]">
-                <caption className="sr-only">Version codes per Google Play track</caption>
-                <tbody>
-                  {Object.entries(detail.playStatus.tracks).map(([track, codes]) => (
-                    <tr key={track} className="border-t border-line-soft first:border-t-0">
-                      <th scope="row" className="py-1.5 text-start font-medium text-ink">
-                        {track}
-                      </th>
-                      <td className="py-1.5 text-end font-mono text-body tabular">{codes.length ? codes.join(', ') : 'empty'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p className="mt-2 text-[12px] text-muted">Checked {clock(detail.playStatus.checkedAt)}</p>
-            </>
-          ) : playState === 'failed' ? (
-            waiting('Fastlane could not reach Google Play; the reason is above and in the log.')
-          ) : (
-            waiting('Fastlane is asking Google Play for every track’s version codes.')
-          )
         ) : (
           <>
             <dl>
               <Fact term="Track">
-                <span className="font-semibold text-ship-ink">{detail.plan?.track ?? detail.run.track ?? 'default'}</span>
+                <span className={clsx('font-semibold', track === 'production' ? 'text-ship-ink' : 'text-ink')}>{track}</span>
               </Fact>
               {detail.plan && (
                 <Fact term="After upload">

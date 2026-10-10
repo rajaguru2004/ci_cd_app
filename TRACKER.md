@@ -1,14 +1,15 @@
 # Mobile CI/CD POC — task tracker
 
-Status: **Built, deployed on this machine, verified end to end on this server: a source ZIP
-uploaded in the console ran tests, built and signed the AAB, and passed Google Play's
-validation; then a real release put 1.0.1 (1007) on the internal testing track (18:41 IST).**
-The same run on GitHub Actions waits on your steps in §4. Opened 2026-09-29 19:33 IST;
-resumed 2026-09-30 12:07; last update 2026-09-30 18:45.
+Status (2026-10-10 17:11 IST): **Phase 9 done — Build and Release run on this server by
+default, or, per app, on the app's own GitHub Actions (Settings → Where builds run).** Waiting
+on you: the console's public key on GitHub (§8), and a GitHub token (§9, "What only you can
+do") before GitHub Actions can run anything for real. Opened 2026-09-29 19:33 IST; Phase 8
+opened 2026-10-10 13:25 IST, finished 14:45; Phase 9 opened 16:05, finished 17:11 (≈1 h 6 min
+against the 4 h 10 min estimate).
 
-Progress: 7 of 8 phases done (Phase 5's GitHub half waits on §4). Remaining after your
-steps: about 40 minutes (a Play-access check, a build, a rehearsal and a real internal
-release on GitHub Actions).
+Before Phase 8: built, deployed on this machine, verified end to end on this server (a source
+ZIP ran tests, built and signed the AAB, passed Google Play's validation; real releases put
+1.0.1 (1007) and later (1009) on the internal track).
 
 Nothing is deleted from this file: a finished task flips to `[x]`, a changed plan is struck
 through with the reason.
@@ -225,3 +226,196 @@ Found on the way (all fixed, with tests):
 - ZIP runs run one at a time on this server; the first build on a new server downloads the
   Gradle distribution, the NDK (about 1 GB) and the Maven dependencies (tens of minutes). Later
   builds use the caches.
+
+---
+
+## 8. Universal console: many apps, SSH access, keys in a vault (opened 2026-10-10 13:25 IST)
+
+> "our cicd pipeline app looks like it is made for our hrm app alone … it has to be universal
+> where we should able to manage multiple apps … for any other user using our service too get
+> their git email id, generate a ssh key from our side, then while pasting ask them for the ssh
+> url … whenever they click release in our web app, run the git pull test build then release …
+> also provide provision to upload jks key file and other required key file for proper
+> successful release"
+
+Decisions taken without stopping (your standing preference: questions batched at the end):
+
+| Question | Decision |
+|---|---|
+| Where runs execute | On this server's builder, for every app: git pull over SSH → tests → signed AAB → Fastlane → Google Play. The GitHub Actions path (token, `workflow_dispatch`, `release.yml`) leaves the console: it never ran (token could not see the org repo) and SSH replaces the token. ZIP upload stays as a second source. |
+| Repository access | Per person: their git email → the console generates an ed25519 key (comment = the email) → they add the public key to their GitHub/GitLab/Bitbucket account (or as a deploy key) → they paste the repo's SSH URL → the console checks it with `git ls-remote`. Any git host that speaks SSH works. |
+| Where secrets live | Only in the builder's vault, encrypted (AES-256-GCM, `VAULT_KEY` in `.env`): SSH private keys, keystores and their passwords, per-app Play keys. The console API holds none; build steps (the app's own code) never see the upload key. |
+| Signing | Per app: "upload a keystore" (the console signs the finished bundle itself, as root, with `jarsigner`; Gradle signs with a throwaway key so a project's own signing config never blocks the build) or "the repository's signing" (key.properties committed, as FusionHRM does today). |
+| Google Play key | Per app: its own service-account JSON, or the console's default key (the one mounted today). |
+| Version codes | Per app, at the start of each run: max(Play's highest + 1, the highest this console used + 1, pubspec build number). |
+| App types | Flutter apps (every app in the org's folders is Flutter). Native Android projects are refused with a sentence. |
+| Overview layout | Concept roll `fec4f208` dealt "app card grid" as the lead (unattended run: the dealt lead is built). |
+
+| # | Task | Estimate | Status |
+|---|---|---|---|
+| 8.1 | Prove the signing approach on a real build (injected throwaway key, re-sign with jarsigner) | 20 min | done 13:30 — FusionHRM `a2d8a3f` built with `-P android.injected.signing.*` → signer `CN=Release Console throwaway` (the project's own key.properties overridden); re-signed as root with the real upload key → `CN=PrithiyaC`, `67:D7:42:…`, nested `base/root/META-INF` kept |
+| 8.2 | Builder: vault, SSH keys, git mirror/ls-remote/inspect/commits, apps registry, Play client + edit guard + version codes, git checkout + project checks + re-sign in the pipeline, per-app run numbers, HTTP API, tests | 5 h | done 13:49 · 95 tests, including git over a real sshd with a console-made key and signing with real keytool/jarsigner |
+| 8.3 | Fastlane lanes take the package from the run (no FusionHRM constant) | 15 min | done; `release.yml`, `release-plan.sh` and their tests retired (git history keeps them) |
+| 8.4 | API: drop GitHub; apps, keys, runs, uploads (ZIP, keystore, Play JSON), commit stream, setup; tests | 3 h | done · 49 tests (end to end against a builder-shaped server) |
+| 8.5 | UI: Apps overview, Add app (email → key → SSH URL → check → app → keys), app console, app settings, Git keys, Setup, Release sheet, top bar with app switcher and builder status | 5 h | done; detector clean; finish review: fix (8 items) → fixed, verdict pending |
+| 8.6 | Compose, `.env`, deploy script (VAULT_KEY, openssh in the builder as a top layer) | 30 min | done; `VAULT_KEY` generated into `.env`; deployed here |
+| 8.7 | End to end on this server: a local SSH git server holding the FusionHRM repo → key → URL → check → app → uploaded keystore → build → rehearsal release (validate-only) | 1.5 h | **done** — through the real UI: key made for rajaguru20042@gmail.com, added to the SSH server's authorized_keys (as on GitHub), access check read `Fusion HRM` / `com.fusionapps.fusionhrm`, keystore checked and stored; run #10 pulled `a2d8a3f` over SSH, 323 tests + both project checks passed, AAB re-signed by the console with the upload key (`ED:6C:00:56:…:D3`), **Google Play validated 1.0.1 (1010) on internal** (nothing published). The 9 earlier runs were adopted as Fusion HRM #1–#9. Real GitHub answered the not-yet-added key with "github.com refused the key for rajaguru20042@gmail.com (Permission denied)…" |
+| 8.8 | Design finish: screenshots, finish review, fixes, DESIGN.md; README, PRODUCT.md | 1.5 h | done 14:45 — README and PRODUCT.md rewritten for the Release Console; DESIGN.md and `.impeccable/design.json` recorded from the shipped build; the documenter's three flags fixed and checked on the live console (a non-production Track fact is ink, not orange; every transition eases out-expo, hovers 160 ms; the passed-test count is the mono figure); its fourth (mono falling back) checked and false: Geist Mono loads |
+
+Estimate ≈ 17 h of work; ETA 2026-10-11 ~07:00 IST if worked straight through.
+
+### Phase 8 — results (2026-10-10)
+
+Verified on this machine, with the console's own images:
+
+- **Add app through the UI** (Playwright on the live console): git email → ed25519 key made by the
+  console → its public line added to an SSH git server standing in for GitHub → an HTTPS URL
+  refused with the SSH form to use → `git ls-remote` with the key (6 branches) → the project read
+  off the branch (`ess_portal 1.0.1+9`, `com.fusionapps.fusionhrm`, label "Fusion HRM",
+  key.properties committed) → app created → the upload keystore checked (signs a probe JAR) and
+  sealed in the vault.
+- **Release rehearsal from the release sheet** (run #10): pulled `a2d8a3f` over SSH, 323 tests and
+  both `tool/check_*.dart` passed, Gradle signed with a throwaway key, the console re-signed the AAB
+  with the stored upload key (`CN=PrithiyaC`, SHA-256 `ED:6C:00:56:…:D3`), **Google Play validated
+  1.0.1 (1010) for internal** — nothing published. 4 min 9 s end to end on warm caches.
+- **Real GitHub** answered the console's key with "github.com refused the key for
+  rajaguru20042@gmail.com (Permission denied)…" until it is added (expected); its host key was
+  pinned as `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU` (GitHub's published ED25519).
+- **History kept:** the nine earlier ZIP runs (incl. the internal releases 1007 and 1009) belong to
+  Fusion HRM as #1–#9; #10 is the rehearsal above; #11 a build started and cancelled to check the
+  running view.
+- **Isolation checked in the container:** the build user cannot list the vault or the mirrors,
+  cannot read any run's artifacts or logs (root:1000 0750), cannot write uploads; after each run
+  the checkout, the throwaway key and the Fastlane folder are gone and `/dev/shm` is empty.
+- Tests: builder 96 (incl. git over a real sshd and signing with keytool/jarsigner), API 49;
+  web, API and builder typecheck clean; design detector clean.
+- Design: finish review → fix (8 items) → verdict: 1, 2, 4, 7 resolved; 3, 5, 6 partial → fixed
+  after the verdict (phone blockers panel, Settings action rows, running header now shows the
+  commit) and checked on captures, not re-scored (the review budget was two rounds); DESIGN.md
+  rewritten by the documenter, whose three flagged slips were fixed and checked on the live build.
+
+Final state: one app, **Fusion HRM**, pointed at
+`git@github.com:the-reciprocal-solutions/human-resource-management-mobile-ess.git` (branch `main`),
+signed by the console with the upload keystore from the repository, released with the console's
+default Play key. It cannot pull until the key below is on GitHub.
+
+### What only you can do (Phase 8)
+
+1. **Add the console's key to GitHub** (your account `rajaguru2004`, which can open the org
+   repo): GitHub → Settings → SSH and GPG keys → New SSH key, title "Release Console", paste
+   (also on the console: Git keys → Public key, or the app's "Copy the public key"):
+   `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJs9zjQRj0nA0pp4oH7Rvci0Fp5LTCuuCSTBIGMKEYUR rajaguru20042@gmail.com`
+   Then Fusion HRM → Settings → Check access. (For one repository only, add it as a deploy key.)
+2. **Fusion HRM's `main` still fails its own tests** unless the two fixes from
+   `fix/main-test-gates` were pushed since 09-30: a Release of `main` would stop at Tests.
+3. **Keep a copy of `VAULT_KEY`** from `.env` somewhere safe: every stored key is sealed with it.
+4. Rotate the Play service-account key (it passed through a chat session on 09-29/30), then put
+   the new JSON in `secrets/play-service-account.json` or upload it per app.
+
+### Known limits (Phase 8)
+
+- One shared console password; keys record whose git email they were made for, runs record
+  "console" as who started them.
+- Flutter apps only, one Flutter version (3.47.5) for all apps; flavors other than a single
+  `bundle/<flavor>Release` output are not handled.
+- One build at a time for every app on this builder.
+- Builds of different apps share the Gradle and pub caches (same organization's code).
+- A key added to a person's account reaches everything that account can open; use deploy keys
+  for narrower access.
+- Google Play requires each app's first upload by hand in Play Console.
+
+---
+
+## 9. GitHub Actions back, as a per-app choice (opened 2026-10-10 16:05 IST)
+
+> "why github actions code deleted?? it also has to be a option, why removing option, giving as
+> many option would actually elevate the user experience right?"
+
+Phase 8 retired the GitHub Actions path instead of making it work for every app; that was the
+console's call, not yours, and it is reversed here. Decisions taken without stopping:
+
+| Question | Decision |
+|---|---|
+| The choice | Per app, "Builds run on": **This server** (default; any git host) or **GitHub Actions** (repositories on github.com). The release sheet can override it for one run. |
+| What runs where | The console plans every run itself (git pull of its mirror, project checks, Google Play's highest version code, the commit), then starts the app's workflow with that plan and follows it: the same six stages, logs, test report, AAB and Play answer as a server run, copied back to the console when each job ends. |
+| Keys on GitHub | The app's code never meets a key there either: Gradle signs with a throwaway key in **Signed AAB**; a separate **Sign AAB** job, which runs none of the app's code, applies the upload key; **Google Play** runs no app code. The console copies the keystore, its passwords and the Play key into the repository's Actions secrets (sealed for GitHub), and refreshes them before a run when they changed. |
+| The workflow | One generic file the console writes: `.github/workflows/release-console.yml` (Fastlane lanes inside it). "Add it for me" commits it to the default branch with the app's GitHub token, or opens a pull request when the branch is protected; "Copy" gives the YAML to commit by hand. The console says when the file in the repository differs from its own. |
+| GitHub token | The console's default (Setup) or the app's own, sealed in the vault. Fine-grained: Actions, Contents, Secrets and Workflows read/write on the app's repositories. Classic: `repo` + `workflow`. |
+| Concurrency | GitHub runs do not wait for the server's one-at-a-time queue. Google Play uploads of one app take turns (job concurrency per package); the console refuses a third release of an app while two are in flight. |
+
+| # | Task | Estimate | Status |
+|---|---|---|---|
+| 9.1 | Builder: GitHub client (ETag, rate limit, downloads), sealed secrets, tokens (default and per app), checks, workflow install (commit or PR), secret sync | 40 min | done — `github.ts`, `sealed.ts`, `actions.ts`; 13 tests against a stand-in GitHub server (tokens, hidden repo, missing/outdated/disabled workflow, commit vs PR install, a token without write access, secrets sealed and kept in step) |
+| 9.2 | Builder: the workflow template (generic; Fastlane inside), linted with actionlint; its signing script tested against real keytool/jarsigner | 30 min | done — `workflow.ts` (`release-console.yml`); actionlint + shellcheck clean (a planted mistake confirmed caught); 6 tests, including a real re-sign and verify with keytool/jarsigner/zip/jq |
+| 9.3 | Builder: GitHub runs — plan and dispatch on the console, follow jobs/steps/logs/artifacts, cancel, re-run, resume after a restart; tests against a stand-in GitHub API | 60 min | done — `pipeline.ts`'s `githubPipeline`, `runner.ts`'s remote path; 3 end-to-end tests over a real sshd + the stand-in GitHub server (success with logs/artifacts copied, resume after a simulated restart, cancel); found and fixed a real bug in `merge()` (a build's skipped Google Play job was tracked when it should not be) |
+| 9.4 | API: runner and GitHub routes, run summaries with where they ran, live-log note | 20 min | done — `apps.controller.ts` (runner, github/token, github/check, github/workflow, github/secrets), new `github.controller.ts` (the console's default token), `runs.dto.ts`/`runs.controller.ts` (runner choice on a run), `runs.service.ts` (`runner`, `remoteUrl` on every run summary), `stages.ts` (the `Sign AAB` job, the `Install Fastlane` step); logs needed no change (the builder writes the same log files either way) |
+| 9.5 | UI: Settings → Where builds run, Setup → GitHub token, release sheet choice, run header link, logs while GitHub runs, blockers | 50 min | done — new `RunnerPanel.tsx` (segmented choice, token fact, 4-row readiness checklist with inline Add/Update workflow and Copy secrets fixes), new `GithubTokenPanel` on Setup (default token), `ReleaseSheet.tsx` (per-run "Runs on" choice + summary sentence), `RunPanel.tsx` (GitHub Actions link, trigger text), `LogPane.tsx` ("Running on GitHub Actions…" note in place of "Loading log…" while a step hasn't finished there), `AppCard.tsx` and the app console's Blockers panel (a GitHub-not-ready amber line); `apps.ts` also fixed to give an app already on github.com the option on its next read, not only on its next save (a real gap, caught live against Fusion HRM, which predates this feature) — covered by a new apps.spec.ts test; `tsc`, `next build` and the builder suite (119 tests) all clean |
+| 9.6 | Deploy; end to end through the UI against a stand-in GitHub API (real GitHub needs your go-ahead) | 30 min | done — all three images rebuilt and redeployed, all healthy; the heavy end-to-end run (plan → dispatch → GitHub mirrors the jobs → logs and artifacts copied back → success; a restart between dispatch and recording the run's id, resumed; a cancel) is the Jest suite in 9.3, over a real sshd and the stand-in GitHub API, not re-driven through Playwright a second time. Through the real UI on the live console (read-only, no token configured so no real GitHub was reached): Fusion HRM's Settings shows "Where builds run" with its real `the-reciprocal-solutions/…` slug (the self-heal fix above, confirmed live), Check again correctly reports no token and leaves repository/workflow/secrets unchecked, Setup shows the new Default GitHub token row; checked on both viewports |
+| 9.7 | Screens (desktop + phone), DESIGN.md, PRODUCT.md, README, this tracker | 20 min | done 17:11 — Settings and Setup screenshotted on desktop and phone against the live console (one real bug found and fixed from this: the Token readiness row said "No token" before any check had run; now says "Not checked yet" like the other three rows); PRODUCT.md (Positioning, Capabilities) and README.md ("Where builds run", Security, troubleshooting rows) rewritten; DESIGN.md and `.impeccable/design.json` updated incrementally by the documenter (new Readiness List component, the Segmented choice's new "Runs on" instance, the Blockers/App-card GitHub row) — nothing removed or renumbered, no defect in the new work, two pre-existing/out-of-scope documentation gaps flagged and left alone |
+
+Estimate ≈ 4 h 10 min of work; ETA 2026-10-10 ~20:15 IST.
+
+### Phase 9 — results (2026-10-10)
+
+Verified on this machine, with the console's own images:
+
+- **The builder:** a GitHub client with ETag caching and rate-limit tracking; tokens (the
+  console's default and an app's own) verified against GitHub before they are stored; the
+  readiness check (token, repository, workflow, secrets) and the workflow install (a commit, or
+  a pull request on a protected branch) tested against a stand-in GitHub server — 13 tests.
+- **The workflow the console writes** (`release-console.yml`, generic, Fastlane inside) is
+  clean under `actionlint` and `shellcheck` (a planted mistake was confirmed caught), and its
+  signing script re-signs a throwaway-signed bundle with a real upload key and verifies it with
+  real `keytool`/`jarsigner`/`zip`/`jq` — 6 tests.
+- **A run on GitHub Actions, through the real `Runner` and pipeline** (not a stand-in of them):
+  a real `sshd` serving a Flutter-shaped repository, pulled by the Plan job on this server, its
+  commit and version planned, dispatched to the stand-in GitHub server, and followed to success
+  with every job's log and the test report, AAB and build info copied back; a second run
+  resumed correctly after a simulated restart between dispatching it and recording its id; a
+  third was cancelled mid-flight. Following this work found and fixed a real bug: `merge()` was
+  tracking GitHub's own skipped "Google Play" job even on a build-only run, which the console's
+  own plan never includes — 3 tests, on top of the 119 in the builder's full suite.
+- **The API:** 50 tests, including a new one for the `Sign AAB` job and the `Install Fastlane`
+  step mapping onto the right stage.
+- **The console rebuilt and redeployed**, all three containers healthy. Checked on the live
+  console (read-only; no GitHub token is configured, so nothing reached real GitHub): Fusion
+  HRM's repository is already on github.com, so Settings → Where builds run already offers
+  GitHub Actions with its real slug — not because anyone asked it to, but because a fix made
+  during this work gives that option to an app recorded before Phase 9 existed, the first time
+  it is read, not only after it is next saved. Check again correctly reported no token and left
+  Repository, Workflow and Secrets at "Not checked yet" (no call to GitHub was made). Checked on
+  both desktop and phone widths.
+- `tsc` and `next build` clean for the API and the web app throughout.
+
+### What only you can do (Phase 9)
+
+1. **To actually build an app on GitHub Actions:** give the console a GitHub token — a
+   fine-grained one scoped to the app's repository with Actions, Contents, Secrets and
+   Workflows read/write (classic: `repo` + `workflow`), pasted either as the console's default
+   (Setup → Default GitHub token) or for one app (its settings → Where builds run). None was
+   pasted during this work, and the repository's existing `GITHUB_TOKEN`/`GITHUB_REPO` in
+   `.env` were not reused for it — those were the retired path's, their write access to the org
+   repo was never confirmed, and using them would reach the real `the-reciprocal-solutions`
+   repository. Once a token is in, Settings → Where builds run → Check again, then Add the
+   workflow.
+2. Fusion HRM's repository is already on github.com, so it already shows the GitHub Actions
+   option (see Phase 9 results below) — it still builds on this server until you switch it or
+   give it a token and add the workflow.
+3. The old `GITHUB_TOKEN`, `GITHUB_REPO` and `WORKFLOW_FILE` lines in `.env` are unused now
+   (nothing reads them); remove them whenever you like, or keep `GITHUB_TOKEN`'s value to paste
+   in as the new per-app or default token if its scopes turn out wide enough.
+4. Everything from Phase 8's list still applies (the console's key on GitHub, `main`'s own
+   tests, `VAULT_KEY`, the Play key rotation).
+
+### Known limits (Phase 9)
+
+- A GitHub Actions run does not share this server's one-build-at-a-time queue; only two
+  uploads of one app to Google Play at a time are refused (a third would collide with Google's
+  one-open-edit-per-app rule).
+- The console writes one workflow file, the same for every app; an app with its own
+  requirements inside `.github/workflows/` would need to fold them into this one by hand (the
+  console only ever writes its own content, and says when the file differs).
+- `Settings → Where builds run → Add the workflow` needs a GitHub token with Contents (and,
+  on a protected default branch, pull-request) rights beyond what reading needs.
+- A GitHub Actions run's log is copied back only once a step finishes; while it runs, the
+  console points at GitHub's own page rather than tailing it live.

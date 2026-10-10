@@ -1,5 +1,4 @@
-import { zipSync, strToU8 } from 'fflate';
-import { errorLines, parseFlutterTestReport, readJson, unzip } from './artifacts';
+import { errorLines, parseFlutterTestReport } from './artifacts';
 
 const ev = (o: object) => JSON.stringify(o);
 
@@ -75,18 +74,5 @@ describe('errorLines', () => {
 
   it('keeps the exit-code line when it is all there is', () => {
     expect(errorLines('2026-09-29T10:00:01.1Z ##[error]Process completed with exit code 1.')).toEqual(['Process completed with exit code 1.']);
-  });
-});
-
-describe('artifact zips', () => {
-  it('reads a JSON file out of an artifact zip by suffix', () => {
-    const zip = Buffer.from(zipSync({ 'plan.json': strToU8('{"mode":"release","versionCode":1007}') }));
-    expect(readJson<{ mode: string; versionCode: number }>(unzip(zip), 'plan.json')).toEqual({ mode: 'release', versionCode: 1007 });
-  });
-
-  it('answers null for a missing or broken file', () => {
-    const zip = Buffer.from(zipSync({ 'plan.json': strToU8('{broken') }));
-    expect(readJson(unzip(zip), 'plan.json')).toBeNull();
-    expect(readJson(unzip(zip), 'other.json')).toBeNull();
   });
 });

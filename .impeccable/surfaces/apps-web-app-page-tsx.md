@@ -2,78 +2,61 @@
 version: 1
 slug: "apps-web-app-page-tsx"
 primary_target: "apps/web/app/page.tsx"
-related_targets: ["apps/web/app/setup/page.tsx","apps/web/app/login/page.tsx"]
+related_targets: ["apps/web/app/apps/new/page.tsx","apps/web/app/keys/page.tsx","apps/web/app/setup/page.tsx","apps/web/app/login/page.tsx"]
 ---
 
-# Surface brief: pipeline console (commit stream)
+# Surface brief: Apps overview and Add app
 
 ## Scope and mode
 
-The console's main surface: the commit stream of a branch with the selected commit's pipeline
-run, plus its satellites (start-build sheet, setup page, login). Mode: **Operate**.
+The console's home: every app the organization ships, each with its latest run and what each
+Google Play track holds, plus the Add app flow (git email → generated SSH key → the repo's SSH
+URL → access check → app details → signing key and Play key). Mode: **Operate**.
 
 ## Audience, job, constraints
 
-- Mobile engineers only. Jobs, in frequency order: see what main's recent commits did in CI;
-  open a failed run and read the failing step's log; download the signed AAB; start a build or a
-  Play release; check setup (token, workflow on main, Play key).
-- Every state is GitHub's real state for the run. While a job runs, only step states and
-  durations exist (GitHub publishes the job log when the job ends) — say so, link the live log.
-- Runs start three ways (console, `release:` commit on main, `v*` tag); all run `release.yml`.
-- Phone width must work (stream first, detail as its own view), but the desk is the scene.
+- Mobile engineers of the organization, any app, any of them may add one. Jobs, in frequency
+  order: see which app is healthy and what is live on Play; release an app; open an app's runs;
+  add an app; manage its keys.
+- One builder on this server runs one build at a time for every app; the queue is shared.
+- Every state shown is the builder's record of a real run or a live read of Google Play.
+- Secrets are write-only from the browser: the page shows a key's fingerprint, never the key.
 
 ## Chosen direction and memorable moment
 
-Commit stream. The memorable moment: the rail. Each commit node is a six-arc stage ring
-(checkout, dependencies, tests, AAB, Fastlane, Google Play) that fills live; selecting the
-commit opens the same six stages as the full strip on the right, and the run header carries the
-ring itself at 44px beside the state line.
-
-## Decisions recorded after the build (2026-09-30)
-
-- "On Google Play" strip above the rail: the console reads every track live with its own
-  service-account key (added after the key was supplied), so what is on each track is known
-  without a pipeline run. Cells show the track and the live release's version code; production
-  keeps Signal Orange because it is the release that reached everyone.
-- Attention states (missing setup, workflow not on main, the Setup nav dot) use the warn
-  tokens; Signal Orange is only release flags, tags and Play tracks.
-- A release can run as a rehearsal: Google Play validates it and nothing is published; the ring
-  core stays ink for a rehearsal because nothing shipped.
+App card grid (the dealt lead of the surface roll). Memorable moment: each card wears its
+app's live six-arc ring as the avatar, so the grid reads as the organization's pipeline at a
+glance; Release on a card opens that app's release sheet and lands on the new run.
 
 ## Unresolved
 
-- Runs on branches other than the one being viewed: shown under the stream as "runs elsewhere".
-- The run surfaces (rings with real stages, run header, strip, log pane, outputs) were reviewed
-  from source only until the console has a GitHub token; capture them on the first real run.
+- Per-person sign-in (the console still has one shared password); keys record the git email.
 
 ## Direction contract
 
-THESIS: The console is the log of the branch with its pipeline attached: every commit carries
-its run as a six-stage ring on the rail, and `release:` commits and v-tags are flagged as the
-moments that ship. It refuses the category default, a run table cut loose from the code.
+THESIS: Every app the organization ships is one instrument card: its live stage ring, what
+each Google Play track holds, and Build / Release one press away. It refuses the CI dashboard
+default, a run table cut loose from the apps and their store state.
 
-OWN-WORLD: The Fusion HRM default preset: tinted page #F4F6FC, white hairline panels
-(#E2E8F0), slate ink #0F172A/#334155/#64748B, Montserrat with a 14px body, Deep Ledger Blue
-#00358F only for action and the active selection, Signal Orange #F66600 held back for ship
-moments (release flags, tags, Play track), status colours only for run state, one dark Geist
-Mono log pane.
+OWN-WORLD: The established console world (DESIGN.md): tinted page #F4F6FC, white 20px
+hairline panels, slate ink, Montserrat 14px, Deep Ledger Blue only for action and selection,
+Signal Orange only for production and shipped builds, status hues only for run state, Geist
+Mono for machine strings; the six-arc ring as each app's avatar.
 
-STORY: An engineer sees which commits on main are tested, built and shipped, picks one, reads
-its run stage by stage, downloads the AAB or opens the failing log, and starts a build or a
-release from the header without leaving the page.
+STORY: An engineer opens the console, sees every app's latest run and Play tracks at once,
+releases one from its card, or adds a new app by generating a key for their git email and
+pasting the repository's SSH URL.
 
-FIRST VIEWPORT: 64px top bar: app identity (FusionHRM Android, package, repo) at the start,
-Setup link and the primary Start build button at the end. Left column ~400px: branch switcher,
-then the commit rail (ring node, subject, short SHA, author, age, release/tag flags). Right:
-the selected commit's header (subject at headline size, trigger, run number, state, duration,
-actions), the six-stage strip full width, then the log pane (two thirds) beside the outputs
-column (AAB, tests, Google Play).
+FIRST VIEWPORT: 64px top bar (mark, "Release Console", Apps / Git keys / Setup, builder status
+chip). Page header: "Apps" with a one-line summary, "Add app" primary at the end. A grid of app
+cards (auto-fill, min 360px): 44px ring, name, package; branch and repository; the latest run
+line; the four-cell Play strip; a footer with Build and Release. A dashed "Add an app" tile
+closes the grid. Below it, recent runs across apps.
 
-FORM: Commit stream, #3 on my ordered list (1 split console, 2 station rail, 3 commit stream,
-4 log-first, 5 track ledger, 6 timing strips, 7 KPI dashboard); seed key c05418e1. Signature
-interaction: the stage ring fills arc by arc as GitHub reports each stage; selecting a commit
-carries the ring's six stages into the strip. Motion grammar: one 200ms ease-out for state
-changes, a slow sweep on the running arc only, nothing moves when nothing is running.
+FORM: App card grid, position 6 on my ordered list (1 release ledger, 2 app rail beside the
+console, 3 track matrix, 4 top-bar switcher over the console, 5 cross-app run feed, 6 app card
+grid, 7 departure board); seed key fec4f208. Signature interaction: each card's ring fills
+live as its run advances; Release on a card opens that app's release sheet and lands on the
+new run. Motion: the 200ms state ease and the running arc's sweep, nothing else.
 
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the
-verdict, DESIGN.md, and every shipping raster carrying its provenance
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance

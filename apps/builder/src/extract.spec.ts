@@ -2,7 +2,8 @@ import { promises as fs } from 'fs';
 import { strToU8, zipSync, type Zippable } from 'fflate';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { ExtractError, extractZip, pubspecVersion, zipCommit } from './extract';
+import { ExtractError, extractZip, zipCommit } from './extract';
+import { parsePubspec } from './project';
 
 const SHA = 'c8a98f9f49e4ca5033f0dd4696862d247fd6c8f2';
 const LIMITS = { maxBytes: 10 * 1024 * 1024, maxEntries: 1000 };
@@ -55,7 +56,7 @@ describe('extractZip', () => {
     const x = await extractZip(zip, dest, LIMITS);
     expect(x).toMatchObject({ sha: SHA, rootName: 'human-resource-management-mobile-ess-main', files: 3 });
     expect(x.projectDir).toBe(join(dest, 'human-resource-management-mobile-ess-main'));
-    expect(await pubspecVersion(x.projectDir)).toBe('1.0.1');
+    expect(parsePubspec(await fs.readFile(join(x.projectDir, 'pubspec.yaml'), 'utf8')).versionName).toBe('1.0.1');
     const mode = (await fs.stat(join(x.projectDir, 'android/gradlew'))).mode & 0o777;
     expect(mode & 0o111).not.toBe(0);
   });
@@ -94,6 +95,16 @@ describe('extractZip', () => {
     const files: Zippable = { 'pubspec.yaml': strToU8('x') };
     for (let i = 0; i < 20; i += 1) files[`f${i}.txt`] = strToU8('x');
     await expect(extractZip(await zipFile(files), await tmp(), { maxBytes: 1e9, maxEntries: 10 })).rejects.toThrow('more than 10 files');
+  });
+
+  it('finds the app in the folder an app names, under GitHub\'s top folder', async () => {
+    const zip = await zipFile({
+      'repo-main/pubspec.yaml': strToU8('name: tooling\n'),
+      'repo-main/apps/mobile/pubspec.yaml': strToU8('name: mobile\nversion: 3.1.0+7\n'),
+    });
+    const x = await extractZip(zip, await tmp(), LIMITS, 'apps/mobile');
+    expect(x.rootName).toBe('repo-main/apps/mobile');
+    await expect(extractZip(zip, await tmp(), LIMITS, 'apps/web')).rejects.toThrow('no pubspec.yaml in apps/web/');
   });
 
   it('explains a ZIP that is not the app', async () => {

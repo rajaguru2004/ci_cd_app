@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
-import { ChevronRight, Download, ExternalLink, Search } from 'lucide-react';
+import { ChevronRight, Download, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { duration, since } from '@/lib/format';
 import { LogLine, parseLog, splitByStep } from '@/lib/log';
@@ -103,17 +103,23 @@ function Lines({ lines, query }: { lines: LogLine[]; query: string }) {
 
 export function LogPane({
   runId,
+  logName,
   stage,
   jobs,
   now,
   focusStep,
+  remoteUrl,
 }: {
   runId: number;
+  /** Prefix of a downloaded log's file name, e.g. fusionhrm-12. */
+  logName: string;
   stage: StageView;
   jobs: JobView[];
   now: number;
   /** Step number to open first (the failing one), when the parent knows it. */
   focusStep: number | null;
+  /** Set when this run's jobs execute on GitHub Actions: where to read a step live, before its log is copied back. */
+  remoteUrl?: string | null;
 }) {
   const stageJobs = jobs.filter((j) => stage.jobIds.includes(j.id));
   const preferred =
@@ -122,14 +128,12 @@ export function LogPane({
     stageJobs[stageJobs.length - 1];
   const [jobId, setJobId] = useState<number | null>(preferred?.id ?? null);
   const job = stageJobs.find((j) => j.id === jobId) ?? preferred ?? null;
-  // Runs of uploaded ZIPs run on this server, whose logs can be read while the job runs.
-  const local = runId < 0;
   const logKey = job ? `${runId}:${job.id}` : null;
   const [text, setText] = useState<string | null>(logKey ? (LOGS.get(logKey) ?? null) : null);
   const shownKey = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
-  const [note, setNote] = useState<{ reason: string; liveUrl?: string } | null>(null);
+  const [note, setNote] = useState<{ reason: string } | null>(null);
   const [query, setQuery] = useState('');
   const [raw, setRaw] = useState(false);
 
@@ -141,7 +145,6 @@ export function LogPane({
   const finished = Boolean(job?.completedAt) && job?.state !== 'running' && job?.state !== 'queued';
 
   const started = Boolean(job?.startedAt);
-  const jobUrl = job?.url ?? '';
 
   useEffect(() => {
     let cancelled = false;
@@ -157,21 +160,14 @@ export function LogPane({
     // Keep what is on screen while the same job's log is read again (live, or once it ends).
     if (shownKey.current !== logKey) setText(null);
     shownKey.current = logKey;
-    if (!finished && !local) {
-      setNote({ reason: 'GitHub publishes the full log when this job finishes. The steps update live.', liveUrl: jobUrl || undefined });
-      return;
-    }
+    // A job's log is read while it runs (the builder writes it line by line), and once more when it ends.
     if (!finished && !started) return;
     const load = () =>
       api<LogResponse>(`/runs/${runId}/jobs/${job.id}/log`)
         .then((res) => {
           if (cancelled) return;
-          if (res.available) {
-            if (finished) LOGS.set(logKey, res.text);
-            setText(res.text);
-          } else {
-            setNote({ reason: res.reason, liveUrl: res.liveUrl });
-          }
+          if (finished) LOGS.set(logKey, res.text);
+          setText(res.text);
         })
         .catch((e: unknown) => !cancelled && setNote({ reason: e instanceof ApiError ? e.message : 'The log could not be loaded.' }))
         .finally(() => {
@@ -183,13 +179,13 @@ export function LogPane({
       window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logKey, finished, started, local, jobUrl]);
+  }, [logKey, finished, started]);
 
   // Following a live log: stay at the bottom while the reader is there.
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && local && !finished && pinned.current) el.scrollTop = el.scrollHeight;
-  }, [text, local, finished]);
+    if (el && !finished && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [text, finished]);
 
   const lines = useMemo(() => (text ? parseLog(text) : []), [text]);
   const byStep = useMemo(
@@ -214,7 +210,7 @@ export function LogPane({
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${local ? `zip-run-${-runId}` : `run-${runId}`}-${job.name.replace(/\W+/g, '-').toLowerCase()}.log`;
+    a.download = `${logName}-${job.name.replace(/\W+/g, '-').toLowerCase()}.log`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -226,7 +222,7 @@ export function LogPane({
           ? `${stage.label} is not part of this run.`
           : stage.state === 'cancelled'
             ? `${stage.label} did not run: the run was cancelled first.`
-            : `${stage.label} has not started; its steps appear here when ${local ? 'this server' : 'GitHub'} starts the job.`}
+            : `${stage.label} has not started; its steps appear here once ${remoteUrl ? 'GitHub Actions' : 'the builder'} starts the job.`}
       </div>
     );
   }
@@ -285,23 +281,12 @@ export function LogPane({
               </button>
             </>
           )}
-          {job.url && (
-            <a href={job.url} target="_blank" rel="noreferrer" className="flex h-9 items-center gap-1.5 rounded-md px-2 text-[13px] text-log-muted hover:text-white">
-              GitHub
-              <ExternalLink size={13} aria-hidden />
-            </a>
-          )}
         </div>
       </div>
 
       {note && (
         <p className="border-b border-log-line px-4 py-3 text-[13px] text-log-muted">
-          {note.reason}{' '}
-          {note.liveUrl && (
-            <a href={note.liveUrl} target="_blank" rel="noreferrer" className="font-medium text-log-group underline">
-              Watch it live on GitHub
-            </a>
-          )}
+          {note.reason}
         </p>
       )}
 
@@ -342,13 +327,27 @@ export function LogPane({
                     <span className="shrink-0 font-mono text-[12px] text-log-muted tabular">{duration(live)}</span>
                   </button>
                   {isOpen && text && <Lines lines={stepLines} query={query} />}
-                  {isOpen && !text && !note && (finished || started) && <p className="px-4 pb-3 font-mono text-[12px] text-log-muted">Loading log…</p>}
+                  {isOpen && !text && !note && (finished || started) && (
+                    <p className="px-4 pb-3 text-[12px] text-log-muted">
+                      {remoteUrl && !finished ? (
+                        <>
+                          Running on GitHub Actions; its log is copied back once the step finishes.{' '}
+                          <a href={remoteUrl} target="_blank" rel="noreferrer" className="underline hover:text-white">
+                            Watch it there
+                          </a>
+                          .
+                        </>
+                      ) : (
+                        <span className="font-mono">Loading log…</span>
+                      )}
+                    </p>
+                  )}
                 </li>
               );
             })}
             {steps.length === 0 && (
               <li className="px-4 py-4 text-[13px] text-log-muted">
-                {local ? 'This job has not reported its steps yet.' : 'GitHub has not reported this job\'s steps yet.'}
+                This job has not reported its steps yet.
               </li>
             )}
           </ul>

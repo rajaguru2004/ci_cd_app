@@ -1,9 +1,7 @@
-import { unzipSync } from 'fflate';
-
 /**
- * The small JSON artifacts release.yml uploads, and the Flutter test report. The console
- * reads them to say what a run did (plan, tests, AAB, Play upload) in its own words instead of
- * sending people into raw logs.
+ * The small JSON artifacts a run writes (apps/builder/src/pipeline.ts), and the Flutter test
+ * report. The console reads them to say what a run did (plan, tests, AAB, Play upload) in its
+ * own words instead of sending people into raw logs.
  */
 
 export const ARTIFACTS = {
@@ -12,17 +10,18 @@ export const ARTIFACTS = {
   aab: 'app-release-aab',
   buildInfo: 'build-info',
   release: 'play-release',
-  playStatus: 'play-status',
 } as const;
 
 export interface PipelinePlan {
-  mode: 'build' | 'release' | 'validate';
-  trigger: 'console' | 'commit' | 'tag';
+  mode: 'build' | 'release';
+  trigger: 'git' | 'upload';
   tag: string | null;
   track: string;
   releaseStatus: string;
   versionName: string;
   versionCode: number;
+  /** How the code was chosen, in words; absent in plans written before apps existed. */
+  versionCodeFrom?: string;
   integrationTests: boolean;
   publish: boolean;
   /** Absent in plans written before rehearsals existed. */
@@ -31,6 +30,7 @@ export interface PipelinePlan {
   requestId: string | null;
   commit: string;
   ref: string;
+  packageName?: string;
 }
 
 export interface BuildInfo {
@@ -42,6 +42,9 @@ export interface BuildInfo {
   certSha256: string;
   commit: string;
   ref: string;
+  packageName?: string;
+  /** console: the console's upload key signed it after the build; repository: the project's own signing. */
+  signedBy?: 'console' | 'repository';
   builtAt: string;
 }
 
@@ -56,14 +59,6 @@ export interface ReleaseInfo {
   validatedOnly?: boolean;
   uploadedAt: string;
   storeUrl: string;
-}
-
-export interface PlayStatus {
-  packageName: string;
-  checkedAt: string;
-  tracks: Record<string, number[]>;
-  highestVersionCode: number | null;
-  runVersionCode: number | null;
 }
 
 export interface TestFailure {
@@ -90,26 +85,6 @@ export interface TestSummary {
 const MAX_FAILURES = 50;
 const MAX_ERROR = 1500;
 const MAX_STACK_LINES = 12;
-
-/** Every file in a GitHub artifact zip, by path. */
-export function unzip(zip: Buffer): Map<string, Buffer> {
-  const files = unzipSync(new Uint8Array(zip));
-  return new Map(Object.entries(files).map(([name, data]) => [name, Buffer.from(data)]));
-}
-
-/** The first file whose path ends with `suffix`, as parsed JSON; null when absent or broken. */
-export function readJson<T>(files: Map<string, Buffer>, suffix: string): T | null {
-  for (const [name, data] of files) {
-    if (name.endsWith(suffix)) {
-      try {
-        return JSON.parse(data.toString('utf8')) as T;
-      } catch {
-        return null;
-      }
-    }
-  }
-  return null;
-}
 
 interface ReporterEvent {
   type?: string;

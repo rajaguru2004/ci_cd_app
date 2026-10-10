@@ -2,6 +2,7 @@ import { createWriteStream, promises as fs } from 'fs';
 import { dirname, join, resolve, sep } from 'path';
 import { pipeline } from 'stream/promises';
 import yauzl from 'yauzl';
+import { locateProject } from './project';
 
 /**
  * Unpacks an uploaded source ZIP (GitHub's Code → Download ZIP, or `git archive`) safely:
@@ -64,7 +65,36 @@ export async function zipCommit(zipPath: string): Promise<string | null> {
   }
 }
 
-export async function extractZip(zipPath: string, destDir: string, limits: ExtractLimits): Promise<Extracted> {
+/**
+ * Unpacks the ZIP into `destDir` and finds the app in it: `projectPath` when the app names its
+ * folder (looked up under the ZIP's top folder too), else the shallowest pubspec.yaml.
+ */
+export async function extractZip(zipPath: string, destDir: string, limits: ExtractLimits, projectPath = ''): Promise<Extracted> {
+  const dest = resolve(destDir);
+  const { sha, files, bytes, skippedLinks } = await unpackZip(zipPath, dest, limits);
+  const rootName = await locateProject(dest, projectPath);
+  if (rootName === null) {
+    throw new ExtractError(
+      projectPath
+        ? `The ZIP has no pubspec.yaml in ${projectPath}/ (the app's project folder). Upload the repository as GitHub gives it (Code → Download ZIP).`
+        : 'The ZIP has no pubspec.yaml. Upload the app repository as GitHub gives it (Code → Download ZIP).',
+    );
+  }
+  return {
+    sha,
+    projectDir: rootName ? join(dest, rootName) : dest,
+    rootName,
+    files,
+    bytes,
+    skippedLinks,
+  };
+}
+
+/**
+ * Unpacks any ZIP into `destDir` within the limits: an uploaded source, or an artifact a
+ * GitHub Actions run saved. No entry may leave the folder; links are not created.
+ */
+export async function unpackZip(zipPath: string, destDir: string, limits: ExtractLimits): Promise<{ sha: string | null; files: number; bytes: number; skippedLinks: number }> {
   const dest = resolve(destDir);
   await fs.mkdir(dest, { recursive: true });
   const zip = await openZip(zipPath);
@@ -121,48 +151,7 @@ export async function extractZip(zipPath: string, destDir: string, limits: Extra
     });
     zip.readEntry();
   });
-
-  const projectDir = await findProject(dest);
-  if (!projectDir) {
-    throw new ExtractError(
-      'The ZIP has no pubspec.yaml. Upload the mobile repository as GitHub gives it (Code → Download ZIP).',
-    );
-  }
-  return {
-    sha,
-    projectDir,
-    rootName: projectDir === dest ? '' : projectDir.slice(dest.length + 1),
-    files,
-    bytes,
-    skippedLinks,
-  };
-}
-
-/** pubspec.yaml at the top, or one or two folders down (GitHub wraps everything in one). */
-async function findProject(dir: string, depth = 0): Promise<string | null> {
-  try {
-    await fs.access(join(dir, 'pubspec.yaml'));
-    return dir;
-  } catch {
-    /* not here */
-  }
-  if (depth >= 2) return null;
-  const children = (await fs.readdir(dir, { withFileTypes: true }))
-    .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
-    .map((d) => d.name)
-    .sort();
-  for (const child of children) {
-    const found = await findProject(join(dir, child), depth + 1);
-    if (found) return found;
-  }
-  return null;
-}
-
-/** The app's version name from pubspec.yaml (`version: 1.0.1+9` → 1.0.1); null if absent. */
-export async function pubspecVersion(projectDir: string): Promise<string | null> {
-  const text = await fs.readFile(join(projectDir, 'pubspec.yaml'), 'utf8');
-  const m = /^version:\s*([^+\s]+)/m.exec(text);
-  return m ? m[1] : null;
+  return { sha, files, bytes, skippedLinks };
 }
 
 /** Makes a tree owned by the build user, so the unprivileged steps can write build output. */

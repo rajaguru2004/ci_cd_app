@@ -1,359 +1,179 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
-import clsx from 'clsx';
-import { ArrowLeft, GitCommitHorizontal, KeyRound, Play, Upload } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { api } from '@/lib/api';
-import { ago, short } from '@/lib/format';
-import type { Mode, PlayResponse, RunSummary, StreamCommit, StreamResponse } from '@/lib/types';
+import { ago, runLabel, runSource, runWhat } from '@/lib/format';
+import type { AppOverview, Mode, OverviewResponse, RunSummary } from '@/lib/types';
 import { useNow, usePoll } from '@/lib/usePoll';
-import { useHealth } from '@/lib/useHealth';
-import { CommitRail } from '@/components/CommitRail';
-import { LocalRunsRail } from '@/components/LocalRunsRail';
-import { PlayTracks } from '@/components/PlayTracks';
-import { RunPanel } from '@/components/RunPanel';
-import { StartSheet, StartedRun } from '@/components/StartSheet';
+import { AppCard } from '@/components/AppCard';
+import { ReleaseSheet } from '@/components/ReleaseSheet';
+import { RUN_INK, RUN_WORD, ringLabel, shipped, StageRing } from '@/components/stage';
 import { TopBar } from '@/components/TopBar';
 
-export default function Page() {
-  return (
-    <Suspense fallback={<div className="h-svh bg-page" />}>
-      <Console />
-    </Suspense>
-  );
-}
+const live = (r: RunSummary | null) => r?.state === 'running' || r?.state === 'queued';
 
-function Console() {
+export default function AppsPage() {
   const router = useRouter();
-  const params = useSearchParams();
-  const branchParam = params.get('branch');
-  const commitParam = params.get('commit');
-  const runParam = params.get('run');
-
-  const [startOpen, setStartOpen] = useState(false);
-  const [startMode, setStartMode] = useState<Mode>('build');
-  const [detailOnPhone, setDetailOnPhone] = useState(Boolean(runParam || commitParam));
-  const [branches, setBranches] = useState<string[]>([]);
-  const [busyStream, setBusyStream] = useState(false);
-  const [pendingStart, setPendingStart] = useState<StartedRun | null>(null);
-
-  const loadStream = useCallback(
-    () => api<StreamResponse>(`/stream${branchParam ? `?branch=${encodeURIComponent(branchParam)}` : ''}`),
-    [branchParam],
-  );
-  const [anyActive, setAnyActive] = useState(false);
-  const stream = usePoll(loadStream, anyActive || pendingStart ? 5000 : 15000, [branchParam]);
-  const play = usePoll<PlayResponse>(() => api<PlayResponse>('/play'), 120_000, []);
-  const health = useHealth();
-  const uploadsEnabled = Boolean(health?.builderConfigured);
-  // GitHub unreadable (no token, a token that cannot see the repo, GitHub down): there is no
-  // commit stream, so the runs of uploaded ZIPs on this server are listed instead.
-  const githubOff = !stream.data && Boolean(stream.error);
-  const [localActive, setLocalActive] = useState(false);
-  const local = usePoll<RunSummary[]>(
-    githubOff ? () => api<RunSummary[]>('/local-runs') : null,
-    githubOff ? (localActive ? 4000 : 15000) : null,
-    [githubOff],
-  );
-  useEffect(() => {
-    setLocalActive(Boolean(local.data?.some((r) => r.state === 'running' || r.state === 'queued')));
-  }, [local.data]);
-  const now = useNow(true, anyActive || localActive ? 1000 : 30_000);
+  const [active, setActive] = useState(false);
+  const overview = usePoll<OverviewResponse>(() => api<OverviewResponse>('/overview'), active ? 5000 : 20_000, []);
+  const now = useNow(true, active ? 1000 : 30_000);
+  const [sheet, setSheet] = useState<{ app: AppOverview; mode: Mode } | null>(null);
+  const data = overview.data;
 
   useEffect(() => {
-    api<{ defaultBranch: string; branches: string[] }>('/branches')
-      .then((b) => setBranches(b.branches))
-      .catch(() => setBranches([]));
-  }, []);
+    setActive(Boolean(data?.recent.some((r) => live(r))));
+  }, [data]);
 
-  const data = stream.data;
-  useEffect(() => {
-    if (!data) return;
-    const runs = [...data.commits.flatMap((c) => c.runs), ...data.otherRuns];
-    setAnyActive(runs.some((r) => r.state === 'running' || r.state === 'queued' || r.state === 'waiting'));
-    if (pendingStart?.runId && runs.some((r) => r.id === pendingStart.runId)) setPendingStart(null);
-  }, [data, pendingStart]);
-
-  const commits = useMemo(() => data?.commits ?? [], [data]);
-  const allRuns = useMemo(() => [...commits.flatMap((c) => c.runs), ...(data?.otherRuns ?? [])], [commits, data]);
-  const runFromParam = runParam ? Number(runParam) : null;
-
-  const selectedCommit: StreamCommit | null =
-    commits.find((c) => c.sha === commitParam) ??
-    (runFromParam ? commits.find((c) => c.runs.some((r) => r.id === runFromParam)) : undefined) ??
-    (commitParam || runFromParam ? undefined : (commits.find((c) => c.runs.length) ?? commits[0])) ??
-    null;
-  const localRuns = useMemo(() => (githubOff ? (local.data ?? []) : []), [githubOff, local.data]);
-  const selectedRunId = githubOff ? (runFromParam ?? localRuns[0]?.id ?? null) : (runFromParam ?? selectedCommit?.runs[0]?.id ?? null);
-  const selectedRun = [...allRuns, ...localRuns].find((r) => r.id === selectedRunId) ?? null;
-  const siblings = githubOff ? (selectedRun ? [selectedRun] : []) : (selectedCommit?.runs ?? (selectedRun ? [selectedRun] : []));
-
-  function setQuery(next: Record<string, string | null>) {
-    const sp = new URLSearchParams(params.toString());
-    for (const [k, v] of Object.entries(next)) {
-      if (v === null) sp.delete(k);
-      else sp.set(k, v);
-    }
-    const qs = sp.toString();
-    router.replace(qs ? `/?${qs}` : '/', { scroll: false });
-  }
-
-  function selectCommit(c: StreamCommit) {
-    setQuery({ commit: c.sha, run: c.runs[0] ? String(c.runs[0].id) : null });
-    setDetailOnPhone(true);
-  }
-  function selectRun(r: RunSummary) {
-    setQuery({ run: String(r.id), commit: r.sha });
-    setDetailOnPhone(true);
-  }
-  function openStart(mode: Mode = 'build') {
-    setStartMode(mode);
-    setStartOpen(true);
-  }
-  async function refreshStream() {
-    setBusyStream(true);
-    await stream.refresh();
-    setBusyStream(false);
-  }
-  function started(run: StartedRun) {
-    if (run.runId !== null && run.runId < 0) {
-      // A run of an uploaded ZIP: the builder has it already; no branch to switch to.
-      setQuery({ run: String(run.runId), commit: null });
-      setDetailOnPhone(true);
-      void local.refresh();
-      window.setTimeout(() => void stream.refresh(), 1500);
-      return;
-    }
-    setPendingStart(run);
-    if (run.runId) setQuery({ run: String(run.runId), commit: null, branch: run.branch === data?.repo.defaultBranch ? null : run.branch });
-    setDetailOnPhone(true);
-    window.setTimeout(() => void stream.refresh(), 2500);
-  }
+  const summary = useMemo(() => {
+    if (!data) return '';
+    const n = data.apps.length;
+    const building = data.recent.find((r) => r.state === 'running');
+    const lastRelease = data.recent.find((r) => r.mode === 'release' && r.state === 'success' && !r.rehearsal);
+    return [
+      `${n} ${n === 1 ? 'app' : 'apps'}`,
+      building ? `${building.app?.name} ${runLabel(building)} building` : null,
+      lastRelease ? `last release ${ago(lastRelease.completedAt ?? lastRelease.updatedAt, now)} (${lastRelease.app?.name} → ${lastRelease.track})` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }, [data, now]);
 
   return (
-    <div className="flex h-svh flex-col">
-      <TopBar onStart={() => openStart('build')} setupAttention={Boolean(githubOff || (data && !data.workflow.present))} />
-
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[400px_minmax(0,1fr)]">
-        <aside
-          aria-label="Commits"
-          className={clsx('min-h-0 flex-col border-e border-line bg-card', detailOnPhone ? 'hidden lg:flex' : 'flex')}
-        >
-          <section aria-labelledby="play-now" className="border-b border-line px-4 pb-3 pt-3.5">
-            <div className="mb-2 flex items-baseline justify-between gap-2">
-              <h2 id="play-now" className="text-[13px] font-semibold text-ink">
-                On Google Play
-              </h2>
-              {play.data?.configured && (
-                <span className="truncate text-[11px] text-muted">checked {ago(play.data.checkedAt, now)}</span>
-              )}
-            </div>
-            {play.data?.configured ? (
-              <PlayTracks tracks={play.data.tracks} compact />
-            ) : play.data && !play.data.configured ? (
-              <p className="text-[12px] text-muted">{play.data.reason}</p>
-            ) : play.error ? (
-              <p className="text-[12px] text-fail-ink">{play.error.message}</p>
-            ) : (
-              <div className="h-[52px] animate-pulse rounded-[var(--radius-card)] bg-line-soft" />
-            )}
-          </section>
-          {githubOff && uploadsEnabled ? (
-            <LocalRunsRail
-              runs={local.data}
-              loading={local.loading}
-              error={local.error?.message ?? null}
-              selectedRunId={selectedRunId}
-              onSelectRun={selectRun}
-              onUpload={() => openStart('build')}
-              now={now}
-            />
-          ) : (
-          <CommitRail
-            stream={data}
-            error={githubOff ? null : (stream.error?.message ?? null)}
-            loading={stream.loading || busyStream}
-            empty={
-              githubOff ? (
-                <div className="px-6 py-8">
-                  <p className="font-semibold text-ink">No commits to show yet</p>
-                  <p className="mt-1 text-[13px] text-muted">
-                    {stream.error?.status === 503
-                      ? 'The commit stream and every run come from GitHub, and the console has no GitHub token yet.'
-                      : stream.error?.message}
-                  </p>
-                  <Link href="/setup" className="mt-3 inline-block text-[13px] font-semibold text-brand underline">
-                    Connect GitHub in Setup
-                  </Link>
-                </div>
-              ) : undefined
-            }
-            branches={branches}
-            selectedSha={selectedCommit?.sha ?? null}
-            selectedRunId={selectedRunId}
-            onBranch={(b) => setQuery({ branch: b === data?.repo.defaultBranch ? null : b, commit: null, run: null })}
-            onSelectCommit={selectCommit}
-            onSelectRun={selectRun}
-            onRefresh={refreshStream}
-            now={now}
-          />
-          )}
-        </aside>
-
-        <main className={clsx('min-h-0 overflow-y-auto', detailOnPhone ? 'block' : 'hidden lg:block')}>
-          <div className="mx-auto max-w-[1440px] p-4 pb-16 md:p-6">
-            <button
-              type="button"
-              className="btn btn-quiet -ms-2 mb-3 lg:hidden"
-              onClick={() => setDetailOnPhone(false)}
-            >
-              <ArrowLeft size={16} aria-hidden />
-              {githubOff && uploadsEnabled ? 'Builds' : 'Commits'}
-            </button>
-
-            {pendingStart && !pendingStart.runId && (
-              <p className="mb-4 rounded-[var(--radius-card)] bg-run-wash px-4 py-3 text-[13px] text-run-ink">
-                GitHub accepted the run on {pendingStart.branch}; it appears here as soon as GitHub lists it.
-              </p>
-            )}
-
-            {githubOff && !(uploadsEnabled && selectedRunId) ? (
-              <ConnectGithub
-                message={stream.error?.message ?? ''}
-                playConnected={Boolean(play.data?.configured)}
-                onUpload={uploadsEnabled ? () => openStart('build') : null}
-              />
-            ) : selectedRunId ? (
-              <RunPanel
-                key={selectedRunId}
-                runId={selectedRunId}
-                siblings={siblings}
-                onSelectRun={(id) => setQuery({ run: String(id) })}
-                now={now}
-                onChanged={() => {
-                  void stream.refresh();
-                  void local.refresh();
-                }}
-              />
-            ) : selectedCommit ? (
-              <NoRun
-                commit={selectedCommit}
-                isTip={selectedCommit.sha === commits[0]?.sha}
-                branch={data?.branch ?? 'main'}
-                workflowPresent={Boolean(data?.workflow.present)}
-                onStart={() => openStart('build')}
-                now={now}
-              />
-            ) : stream.loading ? (
-              <div className="panel h-64 animate-pulse" aria-hidden />
-            ) : (
-              <div className="panel px-6 py-10 text-center text-muted">Pick a commit on the left.</div>
-            )}
+    <div className="min-h-svh">
+      <TopBar />
+      <main className="mx-auto max-w-[1440px] px-4 pb-20 pt-6 md:px-6 md:pt-8">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-[24px] font-bold leading-tight tracking-[-0.01em] text-ink">Apps</h1>
+            <p className="mt-1 text-body">{summary || 'Every app this console builds, tests and releases to Google Play.'}</p>
           </div>
-        </main>
-      </div>
+          {data && data.apps.length > 0 && (
+            <Link href="/apps/new" className="btn btn-primary">
+              <Plus size={16} aria-hidden />
+              Add app
+            </Link>
+          )}
+        </div>
 
-      <StartSheet
-        open={startOpen}
-        onClose={() => setStartOpen(false)}
-        defaultBranch={data?.branch ?? branchParam ?? 'main'}
-        initialMode={startMode}
-        onStarted={started}
-        blocked={githubOff ? (stream.error?.message ?? 'The console has no GitHub token.') : null}
-        uploadsEnabled={uploadsEnabled}
+        {overview.error && !data && (
+          <p role="alert" className="mt-6 rounded-[var(--radius-card)] bg-fail-wash px-4 py-3 text-fail-ink">
+            {overview.error.message}
+          </p>
+        )}
+
+        {!data && !overview.error && (
+          <div className="mt-6 grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr))]" aria-hidden>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="panel h-[300px] animate-pulse" />
+            ))}
+          </div>
+        )}
+
+        {data && data.apps.length === 0 && <FirstApp />}
+
+        {data && data.apps.length > 0 && (
+          <>
+            <div className="mt-6 grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr))]">
+              {data.apps.map((app) => (
+                <AppCard key={app.id} app={app} now={now} onRun={(mode) => setSheet({ app, mode })} />
+              ))}
+              <Link
+                href="/apps/new"
+                className="flex min-h-[220px] flex-col items-center justify-center gap-2 rounded-[var(--radius-panel)] border border-dashed border-idle px-6 py-8 text-center transition-colors hover:border-brand hover:bg-brand-wash"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-card text-brand ring-1 ring-line">
+                  <Plus size={20} aria-hidden />
+                </span>
+                <span className="text-[16px] font-bold text-ink">Add an app</span>
+                <span className="max-w-[34ch] text-[13px] text-muted">Connect its repository over SSH, then add its upload key and Google Play key.</span>
+              </Link>
+            </div>
+
+            {data.recent.length > 0 && (
+              <section aria-labelledby="recent" className="panel mt-8 overflow-hidden">
+                <h2 id="recent" className="border-b border-line px-5 py-4 text-[16px] font-bold text-ink md:px-6">
+                  Recent runs
+                </h2>
+                <ol>
+                  {data.recent.map((r) => (
+                    <li key={r.id} className="border-b border-line-soft last:border-b-0">
+                      <button
+                        type="button"
+                        onClick={() => r.app && router.push(`/apps/${r.app.id}?run=${r.id}`)}
+                        className="grid w-full grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-3 px-5 py-3 text-start transition-colors hover:bg-line-soft/70 md:px-6"
+                      >
+                        <StageRing stages={r.stages} size={24} shippedCore={shipped(r)} label={ringLabel(r)} />
+                        <span className="min-w-0">
+                          <span className="block truncate text-[14px] text-ink">
+                            <span className="font-semibold">{r.app?.name ?? 'Unassigned'}</span> {runLabel(r)} {runWhat(r)}
+                          </span>
+                          <span className="block truncate text-[12px] text-muted">
+                            <span className="font-mono">{runSource(r)}</span>
+                            {r.source.subject && <> · {r.source.subject}</>}
+                          </span>
+                        </span>
+                        <span className="text-end text-[12px]">
+                          <span className={`block ${RUN_INK[r.state]}`}>{RUN_WORD[r.state].toLowerCase()}</span>
+                          <time className="block text-muted" dateTime={r.createdAt}>
+                            {ago(r.createdAt, now)}
+                          </time>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+          </>
+        )}
+      </main>
+
+      <ReleaseSheet
+        open={Boolean(sheet)}
+        onClose={() => setSheet(null)}
+        app={sheet?.app ?? null}
+        initialMode={sheet?.mode ?? 'release'}
+        onStarted={(run) => {
+          if (sheet) router.push(`/apps/${sheet.app.id}?run=${run.runId}`);
+        }}
       />
     </div>
   );
 }
 
-function NoRun({
-  commit,
-  isTip,
-  branch,
-  workflowPresent,
-  onStart,
-  now,
-}: {
-  commit: StreamCommit;
-  isTip: boolean;
-  branch: string;
-  workflowPresent: boolean;
-  onStart: () => void;
-  now: number;
-}) {
+/** The console with no app yet: what adding one takes, in the order it happens. */
+function FirstApp() {
+  const steps = [
+    ['Your git email', 'The console makes an SSH key for you. You add its public half to your GitHub, GitLab or Bitbucket account.'],
+    ["The repository's SSH URL", 'The console checks it can read the repository, and reads the app’s name and package from it.'],
+    ['The upload key and the Google Play key', 'Kept encrypted on this server. Every release signs and uploads with them; builds never see them.'],
+  ];
   return (
-    <article className="panel px-5 py-6 md:px-6" aria-labelledby="commit-title">
-      <h1 id="commit-title" className="text-[20px] font-bold leading-snug text-ink [text-wrap:balance]">
-        {commit.subject}
-      </h1>
-      <p className="mt-1.5 flex flex-wrap gap-x-2 text-[13px] text-muted">
-        <span className="font-mono">{short(commit.sha)}</span>
-        <span aria-hidden>·</span>
-        <span>{commit.author.login ?? commit.author.name}</span>
-        <span aria-hidden>·</span>
-        <time dateTime={commit.date}>{ago(commit.date, now)}</time>
+    <section aria-labelledby="first-app" className="panel mt-6 max-w-3xl px-6 py-7 md:px-8">
+      <h2 id="first-app" className="text-[20px] font-bold text-ink">
+        Add your first app
+      </h2>
+      <p className="mt-1.5 max-w-[64ch] text-body">
+        The console builds, tests and releases Flutter apps to Google Play from their own repositories, on this server. Adding one takes three things:
       </p>
-      {commit.body && <p className="mt-4 max-w-[70ch] whitespace-pre-wrap text-body">{commit.body}</p>}
-
-      <div className="mt-6 flex flex-col gap-4 rounded-[var(--radius-card)] bg-page px-5 py-5 md:flex-row md:items-center">
-        <GitCommitHorizontal size={22} aria-hidden className="shrink-0 text-muted" />
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold text-ink">No pipeline run for this commit.</p>
-          <p className="mt-1 max-w-[68ch] text-[13px] text-muted">
-            {workflowPresent
-              ? isTip
-                ? `Runs start from the tip of ${branch} (Start build), from a release: commit on main, or from a v-tag. This commit is the tip, so a build from here tests exactly this code.`
-                : 'GitHub starts runs from a branch tip, a release: commit or a v-tag, so an older commit without a run cannot be built on its own. Tag it (v1.2.3) to release it.'
-              : 'The pipeline is not on main yet. Once it is, every release: commit and v-tag runs it, and Start build runs it on any branch.'}
-          </p>
-        </div>
-        {workflowPresent && isTip && (
-          <button type="button" className="btn btn-primary" onClick={onStart}>
-            <Play size={15} aria-hidden fill="currentColor" />
-            Start build on {branch}
-          </button>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function ConnectGithub({ message, playConnected, onUpload }: { message: string; playConnected: boolean; onUpload: (() => void) | null }) {
-  return (
-    <article className="panel max-w-3xl px-6 py-7" aria-labelledby="connect-title">
-      <div className="flex items-start gap-4">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-wash text-brand">
-          <KeyRound size={20} aria-hidden />
-        </span>
-        <div className="min-w-0">
-          <h1 id="connect-title" className="text-[20px] font-bold text-ink">
-            Connect GitHub to see the pipeline
-          </h1>
-          <p className="mt-2 max-w-[68ch] text-body">{message}</p>
-          <p className="mt-3 max-w-[68ch] text-[13px] text-muted">
-            {playConnected ? 'Google Play is already connected (left). ' : ''}Everything about builds, tests, logs and the AAB comes
-            from GitHub Actions, so the console needs a token that can read and start runs on the mobile repository.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <Link href="/setup" className={onUpload ? 'btn btn-secondary' : 'btn btn-primary'}>
-              Open Setup
-            </Link>
-            {onUpload && (
-              <button type="button" className="btn btn-primary" onClick={onUpload}>
-                <Upload size={15} aria-hidden />
-                Build from a source ZIP
-              </button>
-            )}
-          </div>
-          {onUpload && (
-            <p className="mt-3 max-w-[68ch] text-[13px] text-muted">
-              Until then, upload the source ZIP (GitHub → Code → Download ZIP): this server unpacks it and runs the same pipeline.
-            </p>
-          )}
-        </div>
-      </div>
-    </article>
+      <ol className="mt-5 space-y-4">
+        {steps.map(([title, text], i) => (
+          <li key={title} className="grid grid-cols-[32px_minmax(0,1fr)] gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-wash text-[14px] font-bold text-brand tabular">{i + 1}</span>
+            <span>
+              <span className="block font-semibold text-ink">{title}</span>
+              <span className="block max-w-[64ch] text-[13px] text-body">{text}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <Link href="/apps/new" className="btn btn-primary mt-7">
+        <Plus size={16} aria-hidden />
+        Add an app
+      </Link>
+    </section>
   );
 }

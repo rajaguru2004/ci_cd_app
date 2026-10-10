@@ -1,12 +1,31 @@
-import type { GhJob, GhWorkflowRun } from '../github/github.types';
-
 /**
- * The six stages the console draws, mapped from the jobs and steps GitHub reports for a run
- * of release.yml. Pure functions: everything here is derived from GitHub's payload for that
- * run and nothing else, so a stage can never show a state GitHub did not report.
+ * The six stages the console draws, mapped from the jobs and steps the builder records for a
+ * run (in GitHub Actions' vocabulary: status, conclusion, steps). Pure functions: everything
+ * here is derived from the run's own record, so a stage can never show a state that did not
+ * happen.
  *
- * The job and step names are the contract with mobile-pipeline/.github/workflows/release.yml.
+ * The job and step names are the contract with apps/builder/src/pipeline.ts.
  */
+
+/** A step and a job as the stage mapping reads them (the builder's records fit). */
+export interface GhStep {
+  name: string;
+  number: number;
+  status: string;
+  conclusion: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface GhJob {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  steps?: GhStep[];
+}
 export type StageKey = 'checkout' | 'dependencies' | 'tests' | 'aab' | 'fastlane' | 'play';
 
 export type StageState =
@@ -42,6 +61,7 @@ interface JobRule {
 }
 
 const SETUP = /^(Set up job|Checkout code)$/;
+const PLAY_PREP = /^(Set up job|Checkout code|Prepare Fastlane|Set up Ruby and Fastlane|Install Fastlane|Download AAB|Write release notes)$/;
 
 export const JOB_RULES: Readonly<Record<string, JobRule>> = {
   Plan: { first: 'checkout', steps: [], rest: 'checkout' },
@@ -55,11 +75,9 @@ export const JOB_RULES: Readonly<Record<string, JobRule>> = {
   },
   'Emulator smoke suite': { first: 'tests', steps: [], rest: 'tests' },
   'Signed AAB': { first: 'aab', steps: [], rest: 'aab' },
-  'Google Play': {
-    first: 'fastlane',
-    steps: [[/^(Set up job|Checkout code|Set up Ruby and Fastlane|Download AAB|Write release notes)$/, 'fastlane']],
-    rest: 'play',
-  },
+  // GitHub Actions splits the AAB build and its re-signing into two jobs; both are still the aab stage.
+  'Sign AAB': { first: 'aab', steps: [], rest: 'aab' },
+  'Google Play': { first: 'fastlane', steps: [[PLAY_PREP, 'fastlane']], rest: 'play' },
   'Google Play access': {
     first: 'fastlane',
     steps: [[/^(Set up job|Checkout code|Set up Ruby and Fastlane)$/, 'fastlane']],
@@ -89,7 +107,7 @@ export interface StageView {
   steps: StepView[];
 }
 
-type RunLike = Pick<GhWorkflowRun, 'status' | 'conclusion'>;
+type RunLike = { status: string; conclusion: string | null };
 
 export function runState(run: RunLike): RunState {
   if (run.status === 'completed') {
@@ -245,90 +263,10 @@ function aggregate(stage: StageKey, steps: StepView[], jobs: GhJob[]): StageStat
   return steps.some((s) => s.state === 'success' || s.state === 'skipped') ? 'running' : 'queued';
 }
 
-// ─── What started a run ────────────────────────────────────────────────────────────────
-
-export type Trigger = 'console' | 'commit' | 'tag' | 'upload' | 'other';
-export type Mode = 'build' | 'release' | 'validate';
 export const PLAY_TRACKS = ['internal', 'alpha', 'beta', 'production'] as const;
 export type PlayTrack = (typeof PLAY_TRACKS)[number];
 
-export interface ReleaseMarker {
-  /** Null = the repository's default track (PLAY_DEFAULT_TRACK). */
-  track: PlayTrack | null;
-  notes: string;
-}
-
-const RELEASE_SUBJECT = /^release(?:\((internal|alpha|beta|production)\))?:\s*(.*)$/;
-const RELEASE_TAG = /^v(\d+\.\d+\.\d+)(?:-(internal|alpha|beta|production))?$/;
-
-/** `release: notes` / `release(beta): notes` — the same rule release-plan.sh applies. */
-export function parseReleaseSubject(subject: string): ReleaseMarker | null {
-  const m = RELEASE_SUBJECT.exec(subject.trim());
-  if (!m) return null;
-  return { track: (m[1] as PlayTrack | undefined) ?? null, notes: m[2].trim() };
-}
-
-export function parseReleaseTag(tag: string): { version: string; track: PlayTrack | null } | null {
-  const m = RELEASE_TAG.exec(tag);
-  if (!m) return null;
-  return { version: m[1], track: (m[2] as PlayTrack | undefined) ?? null };
-}
-
-export interface RunIntent {
-  trigger: Trigger;
-  mode: Mode | null;
-  track: PlayTrack | null;
-  tag: string | null;
-  requestId: string | null;
-  /** A release Google validates without publishing (console only). */
-  rehearsal: boolean;
-}
-
-/**
- * What a run was asked to do, read from what GitHub lists for it (event, ref, title). The
- * run's `pipeline-plan` artifact is the authority once it exists; this is what the stream can
- * say without downloading anything.
- */
-export function describeRun(run: Pick<GhWorkflowRun, 'event' | 'head_branch' | 'display_title' | 'head_commit'>): RunIntent {
-  const title = run.display_title ?? '';
-  if (run.event === 'workflow_dispatch') {
-    const parts = title.split(' · ');
-    const head = parts[0] ?? '';
-    const release = /^(Rehearse release|Release) to (internal|alpha|beta|production)$/.exec(head);
-    const mode: Mode | null = release
-      ? 'release'
-      : head === 'Check Play access'
-        ? 'validate'
-        : head === 'Build and test'
-          ? 'build'
-          : null;
-    return {
-      trigger: 'console',
-      mode,
-      track: (release?.[2] as PlayTrack | undefined) ?? null,
-      tag: null,
-      requestId: parts.length >= 3 ? (parts[parts.length - 1] ?? null) : null,
-      rehearsal: release?.[1] === 'Rehearse release',
-    };
-  }
-  if (run.event === 'push') {
-    const tag = run.head_branch ? parseReleaseTag(run.head_branch) : null;
-    if (tag) return { trigger: 'tag', mode: 'release', track: tag.track, tag: run.head_branch, requestId: null, rehearsal: false };
-    const subject = (run.head_commit?.message ?? title).split('\n')[0] ?? '';
-    const marker = parseReleaseSubject(subject);
-    return {
-      trigger: 'commit',
-      mode: marker ? 'release' : null,
-      track: marker?.track ?? null,
-      tag: null,
-      requestId: null,
-      rehearsal: false,
-    };
-  }
-  return { trigger: 'other', mode: null, track: null, tag: null, requestId: null, rehearsal: false };
-}
-
-// ─── Job views (shared by GitHub runs and runs on this server) ─────────────────────────────
+// ─── Job views ─────────────────────────────────────────────────────────────────────────
 
 export interface JobView {
   id: number;
@@ -336,8 +274,6 @@ export interface JobView {
   state: StageState;
   startedAt: string | null;
   completedAt: string | null;
-  /** Where to watch it on GitHub; empty for a run on this server. */
-  url: string;
   steps: StepView[];
 }
 
@@ -364,7 +300,6 @@ export function jobView(job: GhJob, stages: StageView[]): JobView {
     state,
     startedAt: job.started_at ?? null,
     completedAt: job.completed_at ?? null,
-    url: job.html_url,
     steps,
   };
 }

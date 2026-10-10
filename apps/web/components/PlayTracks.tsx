@@ -12,13 +12,10 @@ const ORDER = ['production', 'beta', 'alpha', 'internal'];
  */
 export function PlayTracks({ tracks, compact = false }: { tracks: PlayTrackState[]; compact?: boolean }) {
   const byName = new Map(tracks.map((t) => [t.track, t]));
+  // Four cells across where they fit (the rail, a wide card), two by two where they do not.
   return (
-    <dl
-      className={clsx(
-        'grid gap-px overflow-hidden rounded-[var(--radius-card)] border border-line bg-line',
-        compact ? 'grid-cols-4' : 'grid-cols-2 sm:grid-cols-4',
-      )}
-    >
+    <div className="@container">
+    <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-card)] border border-line bg-line @xs:grid-cols-4">
       {ORDER.map((name) => {
         const track = byName.get(name);
         const release = track?.releases.find((r) => r.status === 'completed' || r.status === 'inProgress') ?? track?.releases[0];
@@ -43,5 +40,6 @@ export function PlayTracks({ tracks, compact = false }: { tracks: PlayTrackState
         );
       })}
     </dl>
+    </div>
   );
 }

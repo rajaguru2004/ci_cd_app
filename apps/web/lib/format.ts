@@ -48,6 +48,13 @@ export function clock(iso: string | null | undefined): string {
   });
 }
 
+/** A calendar date with its year, for things that last years (a certificate). */
+export function day(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : iso;
+}
+
 export function bytes(n: number | null | undefined): string {
   if (!n && n !== 0) return '';
   if (n < 1024) return `${n} B`;
@@ -57,7 +64,21 @@ export function bytes(n: number | null | undefined): string {
 
 export const short = (sha: string) => sha.slice(0, 7);
 
-/** "#12" for a GitHub run, "ZIP #3" for a run of an uploaded ZIP on this server. */
-export const runLabel = (run: { id: number; number: number }) => (run.id < 0 ? `ZIP #${run.number}` : `#${run.number}`);
+/** "#12": a run's number within its app. */
+export const runLabel = (run: { number: number }) => `#${run.number}`;
 
-export const isLocal = (run: { id: number }) => run.id < 0;
+/** What a run does, in the console's words. */
+export function runWhat(run: { mode: 'build' | 'release'; track: string | null; rehearsal: boolean }): string {
+  if (run.mode === 'release') return `${run.rehearsal ? 'Rehearsal' : 'Release'}${run.track ? ` → ${run.track}` : ''}`;
+  return 'Build and test';
+}
+
+/** Where a run's source came from: the branch and commit, or the ZIP. */
+export function runSource(run: { source: { kind: 'git' | 'zip'; branch: string | null; fileName: string | null; sha: string | null } }): string {
+  const s = run.source;
+  if (s.kind === 'zip') return s.fileName ?? 'uploaded ZIP';
+  return `${s.branch ?? 'branch'}${s.sha ? ` @ ${s.sha.slice(0, 7)}` : ''}`;
+}
+
+/** "github.com/org/app" from an app's repository, for one-line display. */
+export const repoLine = (repo: { host: string; slug: string }) => `${repo.host}/${repo.slug}`;

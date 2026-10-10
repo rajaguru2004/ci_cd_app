@@ -2,7 +2,7 @@
 
 /*
  * The Fusion HRM default preset ("Ocean Blue", apps/frontend/DESIGN.md in the HRM repo),
- * carried into the pipeline console so it reads as part of the same toolset.
+ * carried into the release console so it reads as part of the same toolset.
  * Two deliberate departures, both for contrast on this console's surfaces:
  *   muted text  #64748B → #5B6679  (HRM's is 4.40:1 on the tinted page; this is 5.37:1)
  *   orange text #CC5200 → #B34700  (4.40:1 → 5.50:1 on white)
@@ -62,6 +62,8 @@
   --shadow-overlay: 0 24px 64px -12px rgb(15 23 42 / 0.28), 0 8px 24px -8px rgb(15 23 42 / 0.12);
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --default-transition-duration: 160ms;
+  --default-transition-timing-function: var(--ease-out-expo);
 }
 
 @layer base {
@@ -90,6 +92,11 @@
     outline: 2px solid var(--color-brand);
     outline-offset: 2px;
     border-radius: 4px;
+  }
+
+  /* Fieldsets default to their content's min width; long fingerprints must not widen the page. */
+  fieldset {
+    min-inline-size: 0;
   }
 
   input,
@@ -163,6 +170,15 @@
     background: var(--color-brand-wash);
     border-color: color-mix(in srgb, var(--color-brand) 30%, var(--color-line));
     color: var(--color-brand);
+  }
+  /* The one destructive action: removing an app, disconnecting its repository. Words on the
+     fail ink tone (6.5:1), never the bright hue. */
+  .btn-danger {
+    background: var(--color-fail-ink);
+    color: #fff;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-fail-ink) 86%, black);
   }
   .btn-quiet {
     height: 36px;

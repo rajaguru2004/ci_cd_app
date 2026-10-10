@@ -4,25 +4,33 @@ import { createReadStream, promises as fs } from 'fs';
 import { hostname } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
+import type { GithubActions } from './actions';
+import { AppError, type AppStore } from './apps';
 import type { BuilderConfig } from './config';
-import { chownTree, ExtractError, extractZip, pubspecVersion } from './extract';
+import { chownTree, ExtractError, extractZip } from './extract';
+import { GitError, parseRepoUrl, type Git } from './git';
 import type { JobLog } from './log';
-import { resolvePlan } from './plan';
-import { StepFailed } from './process';
+import { chooseVersionCode, PlanError, resolvePlan } from './plan';
+import type { PlayClient } from './play';
+import { StepCancelled, StepFailed } from './process';
+import { describeDir, describeProject, locateProject, pickProjectPath, type ProjectInfo } from './project';
+import { bundleSigner, resignBundle, sameFingerprint, SigningError, throwawayKeystore } from './signing';
 import type { Plan, RunRecord } from './types';
+import { PROJECT_CHECKS_SCRIPT, REMOTE_JOBS, TESTS_SCRIPT, type WorkflowPlan } from './workflow';
 
 const exec = promisify(execFile);
 
 /**
- * The release pipeline, step for step as .github/workflows/release.yml runs it on GitHub,
- * for a source ZIP uploaded to the console. The job and step names are the console's
- * contract (apps/api/src/pipeline/stages.ts maps them onto the six stages); keep them equal
- * to release.yml's.
+ * The release pipeline every run executes, for an app's repository at a commit or for an
+ * uploaded ZIP: Plan (checkout, project checks, version code) → Tests → Signed AAB → Google
+ * Play. The job and step names are the console's contract: apps/api maps them onto six stages.
+ * A run on GitHub Actions plans here the same way, then its jobs run on GitHub under the same
+ * names (githubPipeline below, and the workflow in workflow.ts).
  *
- * Every build step runs as the unprivileged `builder` user: the uploaded code (Gradle build
- * scripts, tests) executes there and cannot read the Play key. Only the Fastlane upload, which
- * runs the lanes baked into this image and no uploaded code, gets the key, as root, after
- * every process the build user started has been killed.
+ * Every build step runs as the unprivileged `builder` user: the app's own code (Gradle
+ * scripts, tests) executes there and can read no key. git with the SSH key, signing with the
+ * upload key and Fastlane with the Play key run as root, in steps that run none of the app's
+ * code, after the build user's processes have been killed.
  */
 
 export interface RunPaths {
@@ -31,15 +39,29 @@ export interface RunPaths {
   artifacts: string;
   logs: string;
   play: string;
+  signing: string;
+  /** The uploaded ZIP, for a ZIP run. */
   upload: string;
 }
 
 export interface ShOptions {
-  /** Root, not the build user: only for the Fastlane steps, which run no uploaded code. */
+  /** Root, not the build user: only for steps that run none of the app's code. */
   asRoot?: boolean;
   /** Working directory: the project (default) or the run's Fastlane folder. */
   where?: 'project' | 'play';
   env?: Record<string, string>;
+}
+
+/** What steps reach besides the run itself. */
+export interface Services {
+  apps: AppStore;
+  git: Git;
+  play: PlayClient;
+  github: GithubActions;
+  /** Version codes this console's other runs of the app planned. */
+  usedVersionCodes(appId: string, exceptRunId: number): Promise<number[]>;
+  /** Runs `fn` alone among the app's runs (choosing a version code must not race). */
+  lockApp<T>(appId: string, fn: () => Promise<T>): Promise<T>;
 }
 
 export interface StepContext {
@@ -48,7 +70,8 @@ export interface StepContext {
   paths: RunPaths;
   log: JobLog;
   signal: AbortSignal;
-  /** Where pubspec.yaml is, once the Plan job has unpacked the upload. */
+  services: Services;
+  /** Where pubspec.yaml is, once the Plan job has checked the source out. */
   project(): string;
   sh(command: string, opts?: ShOptions): Promise<void>;
   save(): Promise<void>;
@@ -69,6 +92,8 @@ export interface JobDef {
   needs: string[];
   timeoutMin: number;
   steps: StepDef[];
+  /** Runs on GitHub Actions: the console only mirrors it (its steps are what GitHub will report). */
+  remote?: boolean;
 }
 
 export const ARTIFACTS = {
@@ -82,28 +107,33 @@ export const ARTIFACTS = {
 const setUp = (jobName: string): StepDef => ({
   name: 'Set up job',
   run: async (ctx) => {
-    ctx.log.line(`Runner: ${hostname()} (the console's builder)`);
+    ctx.log.line(
+      ctx.run.runner === 'github' && ctx.run.remote
+        ? `Runner: ${hostname()} (the console's builder) plans this run; GitHub Actions (${ctx.run.remote.repo}) runs its jobs`
+        : `Runner: ${hostname()} (the console's builder)`,
+    );
+    ctx.log.line(`App: ${ctx.run.app?.name ?? 'unknown'} (${ctx.run.app?.packageName ?? '?'}) · run #${ctx.run.number}`);
     ctx.log.line(`Job: ${jobName}`);
-    ctx.log.line(`Run: #${ctx.run.id} · ${ctx.run.source.fileName}${ctx.run.source.sha ? ` · commit ${ctx.run.source.sha}` : ''}`);
+    const s = ctx.run.source;
+    ctx.log.line(s.kind === 'git' ? `Source: ${s.url} · ${s.requestedSha ?? s.branch}` : `Source: ${s.fileName} (uploaded ZIP)`);
   },
 });
 
-/** Ends a job. Kills whatever the build user left running (a Gradle daemon, a test isolate). */
-const complete = (killBuildUser: boolean): StepDef => ({
+/** Kills whatever the build user left running (a Gradle or Kotlin daemon, a test isolate). */
+async function killBuildUser(ctx: StepContext): Promise<void> {
+  if (process.getuid?.() === 0) await exec('pkill', ['-KILL', '-u', String(ctx.cfg.buildUid)]).catch(() => undefined);
+}
+
+const complete = (killBuild: boolean): StepDef => ({
   name: 'Complete job',
   cleanup: true,
   run: async (ctx) => {
     ctx.log.line('Cleaning up orphan processes');
-    if (killBuildUser && process.getuid?.() === 0) {
-      await exec('pkill', ['-KILL', '-u', String(ctx.cfg.buildUid)]).catch(() => undefined);
-    }
+    if (killBuild) await killBuildUser(ctx);
   },
 });
 
-const sh = (name: string, command: string, opts: ShOptions = {}): StepDef => ({
-  name,
-  run: (ctx) => ctx.sh(command, opts),
-});
+const sh = (name: string, command: string, opts: ShOptions = {}): StepDef => ({ name, run: (ctx) => ctx.sh(command, opts) });
 
 async function copyInto(from: string, toDir: string, name: string): Promise<boolean> {
   try {
@@ -126,37 +156,274 @@ export async function readPlan(paths: RunPaths): Promise<Plan> {
   return JSON.parse(await fs.readFile(join(paths.artifacts, ARTIFACTS.plan, 'plan.json'), 'utf8')) as Plan;
 }
 
-const aabPath = (ctx: StepContext) => join(ctx.project(), 'build/app/outputs/bundle/release/app-release.aab');
-const mappingPath = (ctx: StepContext) => join(ctx.project(), 'build/app/outputs/mapping/release/mapping.txt');
+/** Turns a known failure into the step's one-line error; anything else stays an error. */
+function asStep(e: unknown): unknown {
+  if (e instanceof GitError || e instanceof AppError || e instanceof ExtractError || e instanceof PlanError || e instanceof SigningError) {
+    return new StepFailed(e.message, null);
+  }
+  return e;
+}
+
+const savedAab = (ctx: StepContext) => join(ctx.paths.artifacts, ARTIFACTS.aab, 'bundle/release/app-release.aab');
+
+/** The bundle Gradle wrote: release/app-release.aab, or the only .aab under bundle/ (a flavor's). */
+async function builtAab(ctx: StepContext): Promise<string | null> {
+  const base = join(ctx.project(), 'build/app/outputs/bundle');
+  const plain = join(base, 'release/app-release.aab');
+  if (await fs.access(plain).then(() => true, () => false)) return plain;
+  const found: string[] = [];
+  for (const dir of await fs.readdir(base).catch(() => [] as string[])) {
+    for (const f of await fs.readdir(join(base, dir)).catch(() => [] as string[])) if (f.endsWith('.aab')) found.push(join(base, dir, f));
+  }
+  return found.length === 1 ? found[0] : null;
+}
+
+// ─── Checkout ──────────────────────────────────────────────────────────────────────────
+
+/** git fetch into the app's mirror, then the commit the run builds, recorded on the run. */
+async function pullCommit(ctx: StepContext): Promise<{ appId: string; sha: string } | null> {
+  const source = ctx.run.source;
+  if (source.kind !== 'git' || !ctx.run.app) return null;
+  const app = await ctx.services.apps.require(ctx.run.app.id);
+  if (!app.repo) throw new StepFailed(`${app.name} no longer has a repository; build it from a ZIP, or connect the repository in its settings.`, null);
+  const repo = parseRepoUrl(source.url);
+  ctx.log.step(`git fetch origin (${repo.url})`);
+  try {
+    await ctx.services.git.fetch(app.id, repo, app.repo.keyId, { log: ctx.log, signal: ctx.signal });
+    await ctx.services.apps.noteAccess(app.id, null);
+  } catch (e) {
+    if (e instanceof GitError) await ctx.services.apps.noteAccess(app.id, e.message);
+    throw e;
+  }
+  const sha = await ctx.services.git.resolve(app.id, source.requestedSha ? { sha: source.requestedSha } : { branch: source.branch });
+  if (!sha) {
+    throw new StepFailed(
+      source.requestedSha
+        ? `Commit ${source.requestedSha.slice(0, 7)} is not in ${repo.path.replace(/\.git$/, '')} any more (rewritten history?).`
+        : `${repo.path.replace(/\.git$/, '')} has no branch '${source.branch}'.`,
+      null,
+    );
+  }
+  source.sha = sha;
+  source.commit = await ctx.services.git.commitInfo(app.id, sha);
+  await ctx.save();
+  ctx.log.line(`Commit ${sha} on ${source.branch}: ${source.commit.subject}`);
+  ctx.log.line(`by ${source.commit.author} <${source.commit.email}>, ${source.commit.date}`);
+  return { appId: app.id, sha };
+}
+
+async function checkoutGit(ctx: StepContext): Promise<void> {
+  const pulled = await pullCommit(ctx);
+  const source = ctx.run.source;
+  if (!pulled || source.kind !== 'git' || !ctx.run.app) return;
+  const app = await ctx.services.apps.require(pulled.appId);
+  if (!app.repo) throw new StepFailed(`${app.name} no longer has a repository.`, null);
+  const repo = parseRepoUrl(source.url);
+  const sha = pulled.sha;
+  ctx.log.step(`git checkout --detach ${sha.slice(0, 12)}`);
+  await ctx.services.git.checkout(app.id, repo, app.repo.keyId, sha, ctx.paths.src, { log: ctx.log, signal: ctx.signal });
+  const root = await locateProject(ctx.paths.src, ctx.run.app.projectPath);
+  if (root === null) {
+    throw new StepFailed(
+      ctx.run.app.projectPath
+        ? `There is no pubspec.yaml in ${ctx.run.app.projectPath}/ at this commit; check the app's project folder.`
+        : 'No pubspec.yaml at the top of the repository or one or two folders down: the console builds Flutter apps.',
+      null,
+    );
+  }
+  source.root = root;
+  await ctx.save();
+  ctx.log.line(`Project: ${root || '(repository root)'}`);
+}
+
+async function checkoutZip(ctx: StepContext): Promise<void> {
+  const source = ctx.run.source;
+  if (source.kind !== 'zip') return;
+  ctx.log.step(`unzip ${source.fileName}`);
+  const x = await extractZip(ctx.paths.upload, ctx.paths.src, { maxBytes: ctx.cfg.maxExtractBytes, maxEntries: ctx.cfg.maxEntries }, ctx.run.app?.projectPath ?? '');
+  source.sha = x.sha;
+  source.root = x.rootName;
+  await ctx.save();
+  ctx.log.line(`Unpacked ${x.files} files (${(x.bytes / 1024 / 1024).toFixed(1)} MB).`);
+  ctx.log.line(`Project: ${x.rootName || '(ZIP root)'}`);
+  ctx.log.line(x.sha ? `Commit: ${x.sha} (from the ZIP)` : 'Commit: unknown — the ZIP carries no commit id.');
+  if (x.skippedLinks) ctx.log.warning(`${x.skippedLinks} symbolic links in the ZIP were not unpacked.`);
+}
+
+// ─── Plan ──────────────────────────────────────────────────────────────────────────────
+
+async function plan(ctx: StepContext, info: ProjectInfo): Promise<void> {
+  ctx.log.step('read the project and choose the version');
+  const runApp = ctx.run.app;
+  if (!runApp) throw new StepFailed('This run belongs to no app.', null);
+  if (!info.flutter) throw new StepFailed(`${info.path || 'The'} pubspec.yaml does not depend on Flutter: the console builds Flutter apps.`, null);
+  if (info.applicationId && info.applicationId !== runApp.packageName) {
+    throw new StepFailed(
+      `This project builds ${info.applicationId} (android/app/${info.gradleFile?.replace('android/app/', '') ?? 'build.gradle'}), but ${runApp.name} releases ${runApp.packageName}. ` +
+        'Build the right repository, or correct the package name in the app’s settings.',
+      null,
+    );
+  }
+  if (!info.applicationId) ctx.log.warning(`The applicationId could not be read from the Gradle file; Google Play will check it is ${runApp.packageName}.`);
+  if (runApp.signing === 'repository' && !info.keyProperties) {
+    ctx.log.warning('The project has no android/key.properties and the console holds no upload key for this app: the build may be debug-signed, which the Signed AAB job refuses.');
+  }
+
+  const app = await ctx.services.apps.get(runApp.id);
+  let playHighest: number | null = null;
+  let playError: string | null = null;
+  const key = app ? await ctx.services.apps.playKey(app).catch((e: unknown) => {
+    playError = (e as Error).message;
+    return null;
+  }) : null;
+  if (key) {
+    try {
+      playHighest = (await ctx.services.play.snapshot(runApp.packageName, key.key, true)).highestVersionCode;
+      ctx.log.line(`Google Play (${key.key.client_email}): highest versionCode ${playHighest ?? 'none yet'}.`);
+    } catch (e) {
+      playError = (e as Error).message;
+    }
+  } else if (!playError) {
+    playError = 'there is no Google Play key for this app (upload one in its settings, or mount the console’s default key)';
+  }
+  if (playError) {
+    if (ctx.run.params.mode === 'release') throw new StepFailed(`Google Play could not be read for ${runApp.packageName}: ${playError}`, null);
+    ctx.log.warning(`Google Play was not read (${playError}); the version code comes from this console's runs and pubspec.yaml.`);
+  }
+  const source = ctx.run.source;
+  // Two runs of one app planning at once (GitHub runs do not queue) must not take one code.
+  const result = await ctx.services.lockApp(runApp.id, async () => {
+    const used = await ctx.services.usedVersionCodes(runApp.id, ctx.run.id);
+    const versionCode = chooseVersionCode({
+      pinned: ctx.run.params.versionCode,
+      playHighest,
+      usedHighest: used.length ? Math.max(...used) : 0,
+      pubspecBuild: info.buildNumber,
+    });
+    const planned = resolvePlan(ctx.run.params, {
+      pubspecVersion: info.versionName,
+      versionCode,
+      trigger: source.kind === 'git' ? 'git' : 'upload',
+      sha: source.sha,
+      ref: source.kind === 'git' ? source.branch : source.fileName,
+      packageName: runApp.packageName,
+    });
+    ctx.run.plan = planned;
+    await ctx.save();
+    return planned;
+  });
+  await fs.mkdir(join(ctx.paths.artifacts, ARTIFACTS.plan), { recursive: true });
+  await fs.writeFile(join(ctx.paths.artifacts, ARTIFACTS.plan, 'plan.json'), JSON.stringify(result, null, 2));
+  ctx.log.line(`Mode: ${result.mode}${result.publish ? ` → Google Play ${result.track} (${result.releaseStatus})` : ''}${result.rehearsal ? ', rehearsal: nothing is published' : ''}`);
+  ctx.log.line(`Version: ${result.versionName} (${result.versionCode}) — the code is ${result.versionCodeFrom}.`);
+  ctx.log.line(`Signing: ${runApp.signing === 'console' ? "the console's upload key, applied after the build" : "the project's own (android/key.properties)"}.`);
+}
+
+// ─── Signing ───────────────────────────────────────────────────────────────────────────
+
+async function prepareSigning(ctx: StepContext): Promise<void> {
+  ctx.log.step('keytool -genkeypair (a throwaway key for Gradle)');
+  const tw = await throwawayKeystore(ctx.paths.signing, process.getuid?.() === 0 ? ctx.cfg.buildUid : undefined, process.getuid?.() === 0 ? ctx.cfg.buildGid : undefined);
+  await fs.writeFile(join(ctx.paths.run, '.throwaway'), JSON.stringify(tw), { mode: 0o600 });
+  ctx.log.line("Gradle signs with a key made for this build alone, so the project's own signing config is never used.");
+  ctx.log.line("The upload key is applied to the finished bundle afterwards, outside the build: the app's code never sees it.");
+}
+
+async function buildAab(ctx: StepContext): Promise<void> {
+  if (ctx.run.app?.signing !== 'console') {
+    return ctx.sh('flutter build appbundle --release --build-name="$VERSION_NAME" --build-number="$VERSION_CODE"');
+  }
+  const tw = JSON.parse(await fs.readFile(join(ctx.paths.run, '.throwaway'), 'utf8')) as { file: string; password: string; alias: string };
+  return ctx.sh(
+    [
+      'flutter build appbundle --release --build-name="$VERSION_NAME" --build-number="$VERSION_CODE" \\',
+      '  -Pandroid.injected.signing.store.file="$RC_THROWAWAY_FILE" -Pandroid.injected.signing.store.password="$RC_THROWAWAY_PASS" \\',
+      '  -Pandroid.injected.signing.key.alias="$RC_THROWAWAY_ALIAS" -Pandroid.injected.signing.key.password="$RC_THROWAWAY_PASS"',
+    ].join('\n'),
+    { env: { RC_THROWAWAY_FILE: tw.file, RC_THROWAWAY_PASS: tw.password, RC_THROWAWAY_ALIAS: tw.alias } },
+  );
+}
+
+async function saveAab(ctx: StepContext): Promise<void> {
+  ctx.log.step('save the bundle and the R8 mapping');
+  // Nothing the build started may touch the bundle once the console has it.
+  await killBuildUser(ctx);
+  const aab = await builtAab(ctx);
+  if (!aab) throw new StepFailed('Gradle wrote no bundle under build/app/outputs/bundle/.', null);
+  const dir = join(ctx.paths.artifacts, ARTIFACTS.aab);
+  await copyInto(aab, join(dir, 'bundle/release'), 'app-release.aab');
+  const mapping = await copyInto(join(ctx.project(), 'build/app/outputs/mapping/release/mapping.txt'), join(dir, 'mapping/release'), 'mapping.txt');
+  ctx.log.line(`Saved ${ARTIFACTS.aab}/bundle/release/app-release.aab${mapping ? ' and the R8 mapping' : ' (no R8 mapping: minification is off)'}`);
+}
+
+async function signWithUploadKey(ctx: StepContext): Promise<void> {
+  ctx.log.step("jarsigner app-release.aab (the app's upload key, from the console's vault)");
+  const key = ctx.run.app ? await ctx.services.apps.uploadKey(ctx.run.app.id) : null;
+  if (!key) {
+    throw new StepFailed(`${ctx.run.app?.name ?? 'This app'} is set to be signed by the console, but it holds no upload key: upload the keystore in the app's settings → Signing.`, null);
+  }
+  await resignBundle(savedAab(ctx), key, ctx.cfg.scratchDir, ctx.log);
+}
+
+async function verifySignature(ctx: StepContext): Promise<void> {
+  ctx.log.step('keytool -printcert -jarfile app-release.aab');
+  const plan = await readPlan(ctx.paths);
+  const aab = savedAab(ctx);
+  const signer = await bundleSigner(aab);
+  for (const l of signer.text.split('\n').slice(0, 14)) ctx.log.line(l);
+  if (signer.debug) {
+    throw new StepFailed(
+      "The bundle is signed with Android's debug key: the project has no release signing. Upload the app's upload keystore in its settings → Signing; Google Play refuses debug-signed bundles.",
+      null,
+    );
+  }
+  if (!signer.owner) throw new StepFailed('The bundle carries no signature.', null);
+  if (ctx.run.app?.signing === 'console') {
+    const app = await ctx.services.apps.get(ctx.run.app.id);
+    const expected = app?.signing.certificate?.sha256;
+    if (expected && !sameFingerprint(expected, signer.sha256)) {
+      throw new StepFailed(`The bundle is signed by ${signer.owner}, not by the upload key stored for the app (${expected.slice(0, 23)}…).`, null);
+    }
+  }
+  const info = {
+    versionName: plan.versionName,
+    versionCode: plan.versionCode,
+    sizeBytes: (await fs.stat(aab)).size,
+    sha256: await sha256(aab),
+    signer: signer.owner,
+    certSha256: signer.sha256,
+    commit: ctx.run.source.sha ?? '',
+    ref: plan.ref,
+    packageName: plan.packageName,
+    signedBy: ctx.run.app?.signing === 'console' ? 'console' : 'repository',
+    builtAt: new Date().toISOString(),
+  };
+  await fs.mkdir(join(ctx.paths.artifacts, ARTIFACTS.buildInfo), { recursive: true });
+  await fs.writeFile(join(ctx.paths.artifacts, ARTIFACTS.buildInfo, 'build-info.json'), JSON.stringify(info, null, 2));
+  ctx.log.line(JSON.stringify(info));
+}
+
+// ─── The pipeline ──────────────────────────────────────────────────────────────────────
 
 export function releasePipeline(run: RunRecord): JobDef[] {
+  if (run.runner === 'github') return githubPipeline(run);
+  const consoleSigning = run.app?.signing === 'console';
   const jobs: JobDef[] = [
     {
       key: 'plan',
       name: 'Plan',
       needs: [],
-      timeoutMin: 10,
+      timeoutMin: 30,
       steps: [
         setUp('Plan'),
         {
           name: 'Checkout code',
           run: async (ctx) => {
-            ctx.log.step(`unzip ${ctx.run.source.fileName}`);
             try {
-              const x = await extractZip(ctx.paths.upload, ctx.paths.src, {
-                maxBytes: ctx.cfg.maxExtractBytes,
-                maxEntries: ctx.cfg.maxEntries,
-              });
-              ctx.run.source.sha = x.sha;
-              ctx.run.source.root = x.rootName;
-              await ctx.save();
-              ctx.log.line(`Unpacked ${x.files} files (${(x.bytes / 1024 / 1024).toFixed(1)} MB).`);
-              ctx.log.line(`Project: ${x.rootName || '(ZIP root)'}`);
-              ctx.log.line(x.sha ? `Commit: ${x.sha} (from the ZIP)` : 'Commit: unknown — the ZIP carries no commit id.');
-              if (x.skippedLinks) ctx.log.warning(`${x.skippedLinks} symbolic links in the ZIP were not unpacked.`);
+              if (ctx.run.source.kind === 'git') await checkoutGit(ctx);
+              else await checkoutZip(ctx);
             } catch (e) {
-              if (e instanceof ExtractError) throw new StepFailed(e.message, null);
-              throw e;
+              throw asStep(e);
             }
             if (process.getuid?.() === 0) await chownTree(ctx.paths.src, ctx.cfg.buildUid, ctx.cfg.buildGid);
           },
@@ -164,26 +431,11 @@ export function releasePipeline(run: RunRecord): JobDef[] {
         {
           name: 'Resolve plan',
           run: async (ctx) => {
-            ctx.log.step('resolve the release plan');
-            let plan: Plan;
             try {
-              plan = resolvePlan(ctx.run.params, await pubspecVersion(ctx.project()), ctx.run.source.sha, ctx.run.source.fileName);
+              await plan(ctx, await describeDir(ctx.paths.src, ctx.run.source.root ?? ''));
             } catch (e) {
-              throw new StepFailed((e as Error).message, null);
+              throw asStep(e);
             }
-            ctx.run.plan = plan;
-            await ctx.save();
-            await fs.mkdir(join(ctx.paths.artifacts, ARTIFACTS.plan), { recursive: true });
-            await fs.writeFile(join(ctx.paths.artifacts, ARTIFACTS.plan, 'plan.json'), JSON.stringify(plan, null, 2));
-            ctx.log.line(`Mode: ${plan.mode}${plan.publish ? ` → Google Play ${plan.track} (${plan.releaseStatus})` : ''}${plan.rehearsal ? ', rehearsal: nothing is published' : ''}`);
-            ctx.log.line(`Version: ${plan.versionName} (${plan.versionCode})`);
-          },
-        },
-        {
-          name: 'Upload plan',
-          run: async (ctx) => {
-            ctx.log.step('save plan.json');
-            ctx.log.line(`Saved ${ARTIFACTS.plan}/plan.json`);
           },
         },
         complete(false),
@@ -196,35 +448,18 @@ export function releasePipeline(run: RunRecord): JobDef[] {
       timeoutMin: 40,
       steps: [
         setUp('Tests'),
-        {
-          name: 'Checkout code',
-          run: async (ctx) => {
-            ctx.log.step('use the uploaded source');
-            ctx.log.line(ctx.project());
-          },
-        },
         sh('Set up Flutter', 'flutter --version'),
         sh('Install dependencies', 'flutter pub get'),
-        // Errors only, as on GitHub: the tree still carries pre-existing infos and warnings.
+        // Errors only: infos and warnings do not fail a release.
         sh('Static analysis', 'flutter analyze --no-fatal-infos --no-fatal-warnings'),
-        sh(
-          'Unit and widget tests',
-          'mkdir -p build/test-results\nflutter test --exclude-tags live --file-reporter json:build/test-results/flutter-test.json',
-        ),
-        sh(
-          'Translation and widget-key checks',
-          'if [ -f tool/check_i18n.dart ]; then dart run tool/check_i18n.dart; fi\nif [ -f tool/check_keys.dart ]; then dart run tool/check_keys.dart; fi',
-        ),
+        sh('Unit and widget tests', TESTS_SCRIPT),
+        sh('Project checks', PROJECT_CHECKS_SCRIPT),
         {
-          name: 'Upload test results',
+          name: 'Save test results',
           always: true,
           run: async (ctx) => {
             ctx.log.step('save the test report');
-            const saved = await copyInto(
-              join(ctx.project(), 'build/test-results/flutter-test.json'),
-              join(ctx.paths.artifacts, ARTIFACTS.tests),
-              'flutter-test.json',
-            );
+            const saved = await copyInto(join(ctx.project(), 'build/test-results/flutter-test.json'), join(ctx.paths.artifacts, ARTIFACTS.tests), 'flutter-test.json');
             ctx.log.line(saved ? `Saved ${ARTIFACTS.tests}/flutter-test.json` : 'No test report was written.');
           },
         },
@@ -239,61 +474,13 @@ export function releasePipeline(run: RunRecord): JobDef[] {
       steps: [
         setUp('Signed AAB'),
         sh('Set up Java', 'java -version'),
-        sh('Build signed AAB', 'flutter build appbundle --release --build-name="$VERSION_NAME" --build-number="$VERSION_CODE"'),
-        {
-          name: 'Verify signature',
-          run: async (ctx) => {
-            ctx.log.step('keytool -printcert -jarfile app-release.aab');
-            const plan = await readPlan(ctx.paths);
-            const aab = aabPath(ctx);
-            try {
-              await fs.access(aab);
-            } catch {
-              throw new StepFailed(`No bundle at ${aab}.`, null);
-            }
-            const { stdout } = await exec('keytool', ['-printcert', '-jarfile', aab], { timeout: 60_000 });
-            for (const l of stdout.split('\n').slice(0, 20)) ctx.log.line(l);
-            if (/CN=Android Debug/.test(stdout)) {
-              throw new StepFailed(
-                'The bundle is signed with the debug key (android/key.properties or the keystore is missing from the ZIP); Google Play would refuse it.',
-                null,
-              );
-            }
-            const owner = /^Owner: (.*)$/m.exec(stdout)?.[1] ?? '';
-            const certSha256 = /^\s*SHA256: (.*)$/m.exec(stdout)?.[1]?.trim() ?? '';
-            const info = {
-              versionName: plan.versionName,
-              versionCode: plan.versionCode,
-              sizeBytes: (await fs.stat(aab)).size,
-              sha256: await sha256(aab),
-              signer: owner,
-              certSha256,
-              commit: ctx.run.source.sha ?? '',
-              ref: ctx.run.source.fileName,
-              builtAt: new Date().toISOString(),
-            };
-            await fs.mkdir(join(ctx.paths.artifacts, ARTIFACTS.buildInfo), { recursive: true });
-            await fs.writeFile(join(ctx.paths.artifacts, ARTIFACTS.buildInfo, 'build-info.json'), JSON.stringify(info, null, 2));
-            ctx.log.line(JSON.stringify(info));
-          },
-        },
-        {
-          name: 'Upload AAB',
-          run: async (ctx) => {
-            ctx.log.step('save the AAB and the R8 mapping');
-            const dir = join(ctx.paths.artifacts, ARTIFACTS.aab);
-            await copyInto(aabPath(ctx), join(dir, 'bundle/release'), 'app-release.aab');
-            const mapping = await copyInto(mappingPath(ctx), join(dir, 'mapping/release'), 'mapping.txt');
-            ctx.log.line(`Saved ${ARTIFACTS.aab}/bundle/release/app-release.aab${mapping ? ' and mapping.txt' : ''}`);
-          },
-        },
-        {
-          name: 'Upload build info',
-          run: async (ctx) => {
-            ctx.log.step('save build-info.json');
-            ctx.log.line(`Saved ${ARTIFACTS.buildInfo}/build-info.json`);
-          },
-        },
+        ...(consoleSigning ? [{ name: 'Prepare signing', run: (ctx: StepContext) => prepareSigning(ctx).catch((e: unknown) => Promise.reject(asStep(e))) }] : []),
+        { name: 'Build AAB', run: buildAab },
+        { name: 'Save AAB', run: saveAab },
+        ...(consoleSigning
+          ? [{ name: 'Sign with the upload key', run: (ctx: StepContext) => signWithUploadKey(ctx).catch((e: unknown) => Promise.reject(asStep(e))) }]
+          : []),
+        { name: 'Verify signature', run: verifySignature },
         complete(true),
       ],
     },
@@ -304,11 +491,11 @@ export function releasePipeline(run: RunRecord): JobDef[] {
       key: 'play',
       name: 'Google Play',
       needs: ['aab'],
-      timeoutMin: 20,
+      timeoutMin: 30,
       steps: [
         setUp('Google Play'),
         {
-          name: 'Checkout code',
+          name: 'Prepare Fastlane',
           run: async (ctx) => {
             ctx.log.step('copy the Fastlane lanes baked into the builder');
             await fs.mkdir(ctx.paths.play, { recursive: true });
@@ -319,62 +506,48 @@ export function releasePipeline(run: RunRecord): JobDef[] {
         },
         sh('Set up Ruby and Fastlane', 'bundle exec fastlane --version | tail -n 2', { asRoot: true, where: 'play' }),
         {
-          name: 'Download AAB',
-          run: async (ctx) => {
-            ctx.log.step('use the AAB from the Signed AAB job');
-            ctx.log.line(join(ctx.paths.artifacts, ARTIFACTS.aab, 'bundle/release/app-release.aab'));
-          },
-        },
-        {
           name: 'Write release notes',
           run: async (ctx) => {
-            const plan = await readPlan(ctx.paths);
-            ctx.log.step(`write fastlane/metadata/android/en-US/changelogs/${plan.versionCode}.txt`);
+            const p = await readPlan(ctx.paths);
+            ctx.log.step(`write fastlane/metadata/android/en-US/changelogs/${p.versionCode}.txt`);
             const dir = join(ctx.paths.play, 'fastlane/metadata/android/en-US/changelogs');
             await fs.mkdir(dir, { recursive: true });
-            await fs.writeFile(join(dir, `${plan.versionCode}.txt`), `${plan.releaseNotes}\n`);
-            ctx.log.line(plan.releaseNotes);
+            await fs.writeFile(join(dir, `${p.versionCode}.txt`), `${p.releaseNotes}\n`);
+            ctx.log.line(p.releaseNotes);
           },
         },
         {
           name: 'Upload to Google Play',
           run: async (ctx) => {
-            const plan = await readPlan(ctx.paths);
-            let key: string;
-            try {
-              key = await fs.readFile(ctx.cfg.playKeyFile, 'utf8');
-            } catch {
-              throw new StepFailed(
-                `No Google Play key on the builder at ${ctx.cfg.playKeyFile}; mount the service-account JSON (docker-compose.yml, secrets/).`,
-                null,
-              );
+            const p = await readPlan(ctx.paths);
+            const app = ctx.run.app ? await ctx.services.apps.get(ctx.run.app.id) : null;
+            const key = app ? await ctx.services.apps.playKey(app) : null;
+            if (!key) {
+              throw new StepFailed(`There is no Google Play key for ${p.packageName}: upload one in the app's settings, or mount the console's default key.`, null);
             }
             await ctx.sh('bundle exec fastlane android deploy', {
               asRoot: true,
               where: 'play',
               env: {
-                PLAY_SERVICE_ACCOUNT_JSON: key,
-                PLAY_TRACK: plan.track,
-                PLAY_RELEASE_STATUS: plan.releaseStatus,
-                VERSION_NAME: plan.versionName,
-                VERSION_CODE: String(plan.versionCode),
+                PLAY_SERVICE_ACCOUNT_JSON: key.json,
+                PLAY_PACKAGE_NAME: p.packageName,
+                PLAY_TRACK: p.track,
+                PLAY_RELEASE_STATUS: p.releaseStatus,
+                VERSION_NAME: p.versionName,
+                VERSION_CODE: String(p.versionCode),
                 AAB_PATH: join(ctx.paths.artifacts, ARTIFACTS.aab, 'bundle/release/app-release.aab'),
                 MAPPING_PATH: join(ctx.paths.artifacts, ARTIFACTS.aab, 'mapping/release/mapping.txt'),
-                PLAY_VALIDATE_ONLY: plan.rehearsal ? 'true' : 'false',
+                PLAY_VALIDATE_ONLY: p.rehearsal ? 'true' : 'false',
               },
             });
           },
         },
         {
-          name: 'Upload release info',
+          name: 'Save release info',
           always: true,
           run: async (ctx) => {
             ctx.log.step('save release-info.json');
-            const saved = await copyInto(
-              join(ctx.paths.play, 'fastlane/release-info.json'),
-              join(ctx.paths.artifacts, ARTIFACTS.release),
-              'release-info.json',
-            );
+            const saved = await copyInto(join(ctx.paths.play, 'fastlane/release-info.json'), join(ctx.paths.artifacts, ARTIFACTS.release), 'release-info.json');
             ctx.log.line(saved ? `Saved ${ARTIFACTS.release}/release-info.json` : 'Fastlane wrote no release info.');
           },
         },
@@ -383,4 +556,132 @@ export function releasePipeline(run: RunRecord): JobDef[] {
     });
   }
   return jobs;
+}
+
+// ─── On GitHub Actions ─────────────────────────────────────────────────────────────────
+
+/** The steps GitHub will report for each job of the workflow, shown queued until it does. */
+export const REMOTE_STEPS: Record<(typeof REMOTE_JOBS)[number], string[]> = {
+  Tests: ['Set up job', 'Checkout code', 'Set up Flutter', 'Install dependencies', 'Static analysis', 'Unit and widget tests', 'Project checks', 'Save test results', 'Complete job'],
+  'Signed AAB': ['Set up job', 'Checkout code', 'Set up Java', 'Set up Flutter', 'Install dependencies', 'Prepare signing', 'Build AAB', 'Save AAB', 'Upload the built AAB', 'Complete job'],
+  'Sign AAB': ['Set up job', 'Download AAB', 'Set up Java', 'Sign with the upload key', 'Verify signature', 'Save AAB', 'Save build info', 'Complete job'],
+  'Google Play': ['Set up job', 'Prepare Fastlane', 'Set up Ruby and Fastlane', 'Install Fastlane', 'Download AAB', 'Write release notes', 'Upload to Google Play', 'Save release info', 'Complete job'],
+};
+
+/** Reads the commit straight out of the mirror: GitHub checks it out itself. */
+async function readCommit(ctx: StepContext): Promise<void> {
+  const pulled = await pullCommit(ctx);
+  if (!pulled || !ctx.run.app) throw new StepFailed('A run on GitHub Actions builds a commit of the app’s repository.', null);
+  const files = await ctx.services.git.files(pulled.appId, pulled.sha);
+  const root = pickProjectPath(files, ctx.run.app.projectPath);
+  if (root === null) {
+    throw new StepFailed(
+      ctx.run.app.projectPath
+        ? `There is no pubspec.yaml in ${ctx.run.app.projectPath}/ at this commit; check the app's project folder.`
+        : 'No pubspec.yaml at the top of the repository or one or two folders down: the console builds Flutter apps.',
+      null,
+    );
+  }
+  ctx.run.source.root = root;
+  await ctx.save();
+  ctx.log.line(`Project: ${root || '(repository root)'} — GitHub Actions checks out the same commit.`);
+}
+
+async function planFromMirror(ctx: StepContext): Promise<void> {
+  const source = ctx.run.source;
+  if (!ctx.run.app || !source.sha) throw new StepFailed('The commit was not read.', null);
+  const appId = ctx.run.app.id;
+  const sha = source.sha;
+  await plan(ctx, await describeProject((rel) => ctx.services.git.show(appId, sha, rel), source.root ?? ''));
+}
+
+async function copySecrets(ctx: StepContext): Promise<void> {
+  ctx.log.step(`check the Actions secrets of ${ctx.run.remote?.repo ?? 'the repository'}`);
+  const app = await ctx.services.apps.require(ctx.run.app?.id ?? '');
+  await ctx.services.github.ensureSecrets(app, ctx.log);
+}
+
+async function startOnGithub(ctx: StepContext): Promise<void> {
+  const remote = ctx.run.remote;
+  const source = ctx.run.source;
+  if (!remote || !ctx.run.app || source.kind !== 'git' || !source.sha) throw new StepFailed('This run has nothing to start on GitHub.', null);
+  const app = await ctx.services.apps.require(ctx.run.app.id);
+  const p = await readPlan(ctx.paths);
+  const what = p.mode === 'release' ? `${p.rehearsal ? 'Rehearsal' : 'Release'} → ${p.track}` : 'Build and test';
+  const plan: WorkflowPlan = {
+    title: `${app.name} #${ctx.run.number} · ${what} [${remote.requestId}]`,
+    requestId: remote.requestId,
+    app: app.id,
+    run: ctx.run.number,
+    mode: p.mode,
+    sha: source.sha,
+    ref: source.branch,
+    projectDir: source.root || '.',
+    submodules: (await ctx.services.git.show(app.id, source.sha, '.gitmodules')) !== null ? 'recursive' : 'false',
+    flutterVersion: ctx.cfg.flutterVersion,
+    packageName: p.packageName,
+    signing: ctx.run.app.signing,
+    certSha256: ctx.run.app.signing === 'console' ? (ctx.run.app.certSha256 ?? '') : '',
+    versionName: p.versionName,
+    versionCode: p.versionCode,
+    track: p.track,
+    releaseStatus: p.releaseStatus,
+    rehearsal: p.rehearsal,
+    notes: p.releaseNotes,
+  };
+  ctx.log.step(`start ${remote.workflow} on ${remote.repo} (${source.sha.slice(0, 12)})`);
+  remote.dispatchedAt = new Date().toISOString();
+  await ctx.save();
+  const res = await ctx.services.github.dispatch(app, plan, ctx.log);
+  if (!res.runId) {
+    throw new StepFailed(
+      `GitHub took the dispatch, but the run did not show up in ${remote.repo}'s Actions list in time, so the console cannot follow it. Look for “${plan.title}” there.`,
+      null,
+    );
+  }
+  remote.runId = res.runId;
+  remote.url = res.url ?? `https://github.com/${remote.repo}/actions/runs/${res.runId}`;
+  await ctx.save();
+  ctx.log.line(`Running on GitHub Actions: ${remote.url}`);
+  // A cancel that came while GitHub was starting the run reaches it now.
+  if (ctx.signal.aborted) throw new StepCancelled();
+}
+
+/**
+ * A run on GitHub Actions: the console plans it here (pull, project checks, version code, the
+ * repository's secrets), starts the workflow, then mirrors GitHub's jobs into the record.
+ */
+export function githubPipeline(run: RunRecord): JobDef[] {
+  const guard = (fn: (ctx: StepContext) => Promise<void>) => async (ctx: StepContext) => {
+    try {
+      await fn(ctx);
+    } catch (e) {
+      throw asStep(e);
+    }
+  };
+  const planJob: JobDef = {
+    key: 'plan',
+    name: 'Plan',
+    needs: [],
+    timeoutMin: 30,
+    steps: [
+      setUp('Plan'),
+      { name: 'Checkout code', run: guard(readCommit) },
+      { name: 'Resolve plan', run: guard(planFromMirror) },
+      { name: 'Copy secrets to GitHub', run: guard(copySecrets) },
+      { name: 'Start on GitHub Actions', run: guard(startOnGithub) },
+      complete(false),
+    ],
+  };
+  const remote = REMOTE_JOBS.filter((name) => name !== 'Google Play' || run.params.mode === 'release').map(
+    (name): JobDef => ({
+      key: name,
+      name,
+      needs: ['plan'],
+      timeoutMin: 0,
+      remote: true,
+      steps: REMOTE_STEPS[name].map((step) => ({ name: step, run: async () => undefined })),
+    }),
+  );
+  return [planJob, ...remote];
 }

@@ -1,63 +1,135 @@
-/** Shapes the console API returns (apps/api/src/pipeline/*.ts, apps/api/src/setup/*.ts). */
+/** Shapes the console API returns (apps/api/src/runs/*.ts, apps/api/src/builder/builder.types.ts). */
 
 export type StageKey = 'checkout' | 'dependencies' | 'tests' | 'aab' | 'fastlane' | 'play';
 export type StageState = 'pending' | 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'skipped';
 export type RunState = 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'skipped' | 'waiting';
-export type Mode = 'build' | 'release' | 'validate';
-export type Trigger = 'console' | 'commit' | 'tag' | 'upload' | 'other';
+export type Mode = 'build' | 'release';
 export type PlayTrack = 'internal' | 'alpha' | 'beta' | 'production';
+export type RunnerKind = 'server' | 'github';
 
-export interface RateLimit {
-  limit: number;
-  remaining: number;
-  reset: number;
+export interface GithubCheck {
+  checkedAt: string;
+  login: string | null;
+  token: 'ok' | 'missing' | 'refused';
+  repo: 'ok' | 'hidden' | 'unknown';
+  workflow: 'ok' | 'outdated' | 'missing' | 'disabled' | 'unknown';
+  secrets: 'ok' | 'stale' | 'missing' | 'unknown';
+  defaultBranch: string | null;
+  message: string | null;
+}
+
+export interface GithubSetup {
+  /** owner/name on github.com. */
+  repo: string;
+  workflow: string;
+  token: 'app' | 'default';
+  tokenLogin: string | null;
+  check: GithubCheck | null;
+  secrets: { syncedAt: string | null; hash: string | null };
+}
+
+export interface GithubTokenView {
+  login: string;
+  kind: 'fine-grained' | 'classic' | 'other';
+  scopes: string[] | null;
+  expiresAt: string | null;
+  savedAt: string;
+}
+
+export interface CertInfo {
+  owner: string;
+  sha256: string;
+  sha1: string;
+  validFrom: string;
+  validUntil: string;
+  algorithm: string;
+}
+
+export interface AppView {
+  id: string;
+  name: string;
+  packageName: string;
+  repo: {
+    url: string;
+    keyId: string;
+    branch: string;
+    defaultBranch: string | null;
+    /** Folder of pubspec.yaml in the repository ('' = found automatically). */
+    path: string;
+    access: { state: 'ok' | 'failed' | 'unchecked'; checkedAt: string | null; message: string | null };
+    host: string;
+    hostLabel: string;
+    slug: string;
+    webUrl: string | null;
+  } | null;
+  signing: { mode: 'console' | 'repository'; fileName: string | null; keyAlias: string | null; certificate: CertInfo | null; updatedAt: string | null };
+  play: { source: 'app' | 'default'; clientEmail: string | null; projectId: string | null; updatedAt: string | null };
+  /** Where Build and Release run by default; a run can ask for the other. */
+  runner: { kind: RunnerKind; github: GithubSetup | null };
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RunSummary {
-  /** GitHub's run id; negative for a run of an uploaded ZIP on this server's builder. */
+  /** Unique on this console. */
   id: number;
+  /** The run's number within its app. */
   number: number;
-  attempt: number;
-  title: string;
-  event: string;
-  trigger: Trigger;
-  mode: Mode | null;
+  app: { id: string; name: string; packageName: string } | null;
+  mode: Mode;
   track: PlayTrack | null;
-  tag: string | null;
-  requestId: string | null;
   /** A release Google validated without publishing. */
   rehearsal: boolean;
-  branch: string | null;
-  sha: string;
+  /** This server's builder, or the app's GitHub Actions. */
+  runner: RunnerKind;
+  /** Where to open the run on GitHub, once it has dispatched; null for a server run. */
+  remoteUrl: string | null;
+  source: { kind: 'git' | 'zip'; branch: string | null; fileName: string | null; sha: string | null; subject: string | null; author: string | null };
   state: RunState;
   createdAt: string;
   startedAt: string | null;
   updatedAt: string;
-  url: string;
-  actor: { login: string; avatarUrl: string | null } | null;
+  completedAt: string | null;
+  startedBy: string;
+  rerunOf: number | null;
+  versionName: string | null;
+  versionCode: number | null;
   stages: Array<{ key: StageKey; state: StageState }>;
+}
+
+export interface AppOverview extends AppView {
+  latestRun: RunSummary | null;
+  activeRun: RunSummary | null;
+  runCount: number;
+}
+
+export interface OverviewResponse {
+  apps: AppOverview[];
+  recent: RunSummary[];
 }
 
 export interface StreamCommit {
   sha: string;
   subject: string;
   body: string;
-  author: { name: string; login: string | null; avatarUrl: string | null };
+  author: { name: string; email: string };
   date: string;
-  url: string;
+  url: string | null;
   tags: string[];
-  release: { track: PlayTrack | null; notes: string } | null;
   runs: RunSummary[];
 }
 
 export interface StreamResponse {
-  repo: { fullName: string; url: string; defaultBranch: string; private: boolean };
-  branch: string;
-  workflow: { present: boolean; file: string };
+  app: AppView;
+  branch: string | null;
+  branches: string[];
+  defaultBranch: string | null;
   commits: StreamCommit[];
   otherRuns: RunSummary[];
-  rate: RateLimit | null;
-  refreshedAt: string;
+  fetchedAt: string | null;
+  fetching: boolean;
+  error: string | null;
+  connected: boolean;
 }
 
 export interface StepView {
@@ -88,25 +160,23 @@ export interface JobView {
   state: StageState;
   startedAt: string | null;
   completedAt: string | null;
-  url: string;
   steps: StepView[];
 }
 
 export interface PipelinePlan {
   mode: Mode;
-  trigger: 'console' | 'commit' | 'tag';
-  tag: string | null;
+  trigger: 'git' | 'upload';
   track: PlayTrack;
   releaseStatus: 'completed' | 'draft';
   versionName: string;
   versionCode: number;
-  integrationTests: boolean;
+  versionCodeFrom?: string;
   publish: boolean;
   rehearsal?: boolean;
   releaseNotes: string;
-  requestId: string | null;
   commit: string;
   ref: string;
+  packageName?: string;
 }
 
 export interface TestSummary {
@@ -129,6 +199,7 @@ export interface BuildInfo {
   certSha256: string;
   commit: string;
   ref: string;
+  signedBy?: 'console' | 'repository';
   builtAt: string;
 }
 
@@ -139,38 +210,26 @@ export interface ReleaseInfo {
   versionName: string | null;
   versionCode: number;
   previousHighestVersionCode: number | null;
-  /** True for a PLAY_VALIDATE_ONLY rehearsal: Google validated it, nothing was published. */
+  /** True for a rehearsal: Google validated it, nothing was published. */
   validatedOnly?: boolean;
   uploadedAt: string;
   storeUrl: string;
 }
 
-export interface PlayStatus {
-  packageName: string;
-  checkedAt: string;
-  tracks: Record<string, number[]>;
-  highestVersionCode: number | null;
-  runVersionCode: number | null;
-}
-
 export interface RunDetail {
   run: RunSummary;
-  commit: { sha: string; subject: string; body: string; author: string | null; date: string | null };
+  commit: { sha: string; subject: string; author: string | null; date: string | null; url: string | null };
   plan: PipelinePlan | null;
   stages: StageView[];
   jobs: JobView[];
-  artifacts: Array<{ id: number; name: string; sizeBytes: number; expired: boolean }>;
+  artifacts: Array<{ id: number; name: string; sizeBytes: number }>;
   tests: TestSummary | null;
   build: BuildInfo | null;
   release: ReleaseInfo | null;
-  playStatus: PlayStatus | null;
   failure: { stage: StageKey | null; jobId: number; jobName: string; step: string | null; messages: string[] } | null;
-  rate: RateLimit | null;
 }
 
-export type LogResponse = { available: true; text: string } | { available: false; reason: string; liveUrl: string };
-
-export type CheckState = 'ok' | 'missing' | 'error' | 'unknown' | 'pending';
+export type LogResponse = { available: true; text: string };
 
 export interface PlayTrackState {
   track: string;
@@ -183,60 +242,83 @@ export interface PlayTrackState {
   }>;
 }
 
-export interface PlaySnapshot {
-  packageName: string;
-  clientEmail: string;
-  projectId: string | null;
-  checkedAt: string;
-  tracks: PlayTrackState[];
-  highestVersionCode: number | null;
+export type PlayResponse =
+  | { configured: true; source: 'app' | 'default'; packageName: string; clientEmail: string; projectId: string | null; checkedAt: string; tracks: PlayTrackState[]; highestVersionCode: number | null }
+  | { configured: false; packageName: string; reason: string };
+
+export interface KeyRecord {
+  id: string;
+  email: string;
+  name: string | null;
+  publicKey: string;
+  fingerprint: string;
+  createdAt: string;
+  lastUsedAt: string | null;
 }
 
-export type PlayResponse = ({ configured: true } & PlaySnapshot) | { configured: false; packageName: string; reason: string };
+export interface HostKey {
+  host: string;
+  type: string;
+  fingerprint: string;
+}
+
+export interface AccessCheck {
+  url: string;
+  host: string;
+  hostLabel: string;
+  slug: string;
+  webUrl: string | null;
+  hostKey: HostKey | null;
+  defaultBranch: string | null;
+  branches: string[];
+}
+
+export interface ProjectInfo {
+  path: string;
+  name: string | null;
+  versionName: string | null;
+  buildNumber: number | null;
+  applicationId: string | null;
+  gradleFile: string | null;
+  label: string | null;
+  keyProperties: boolean;
+  flutter: boolean;
+  sha: string;
+  commit: { subject: string; author: string; email: string; date: string };
+}
+
+export interface BuilderStatus {
+  ok: boolean;
+  busy: boolean;
+  queued: number;
+  current: { id: number; appId: string | null; appName: string | null; number: number; job: string | null } | null;
+  onGithub: Array<{ id: number; appId: string | null; appName: string | null; number: number; job: string | null }>;
+  defaultPlayKey: string | null;
+  toolchain: { flutter: string | null; java: string | null };
+}
 
 export interface SetupResponse {
-  configured: boolean;
-  repo: { fullName: string; url: string; defaultBranch: string; private: boolean } | null;
-  workflowFile: string;
-  checks: Array<{
-    key: 'token' | 'repo' | 'workflow' | 'fastlane' | 'signing' | 'play-console' | 'play-secret' | 'play-access' | 'builder';
-    label: string;
-    state: CheckState;
-    detail: string;
-    fix?: string;
-    url?: string;
-  }>;
-  play: {
-    configured: boolean;
-    clientEmail: string | null;
-    projectId: string | null;
-    snapshot: PlaySnapshot | null;
-    error: string | null;
-  };
-  playCheck: {
-    runId: number;
-    number: number;
-    state: RunState;
-    at: string;
-    url: string;
-    status: PlayStatus | null;
-    messages: string[];
-  } | null;
-  signing: { signer: string; certSha256: string; runNumber: number } | null;
-  variables: { readable: boolean; defaultTrack: string; versionCodeOffset: number; fromVariables: string[] };
-  nextRunNumber: number | null;
-  /** The version code the next run the console starts gets (Play's highest + 1, never reused). */
-  nextVersionCode: number | null;
-  rate: RateLimit | null;
+  builder: BuilderStatus | null;
+  apps: AppView[];
+  keys: KeyRecord[];
+  knownHosts: HostKey[];
+  error: string | null;
 }
 
 export interface StartRunBody {
-  branch: string;
   mode: Mode;
+  /** Omitted: the app's own default (its settings → Where builds run). */
+  runner?: RunnerKind;
   track?: PlayTrack;
   releaseNotes?: string;
   releaseStatus?: 'completed' | 'draft';
   versionName?: string;
-  integrationTests?: boolean;
   rehearsal?: boolean;
+  branch?: string;
+  sha?: string;
+}
+
+export interface StartedRun {
+  runId: number;
+  number: number;
 }

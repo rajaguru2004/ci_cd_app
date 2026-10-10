@@ -4,8 +4,8 @@ import '@fontsource-variable/montserrat';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'FusionHRM Android · Pipeline',
-  description: 'Build, test and release the FusionHRM Android app to Google Play.',
+  title: 'Release Console',
+  description: 'Build, test and release your Android apps to Google Play, from their own repositories.',
 };
 
 export const viewport: Viewport = {

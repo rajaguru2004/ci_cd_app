@@ -35,7 +35,7 @@ export function StageStrip({
               onClick={() => onSelect(s.key)}
               aria-pressed={active}
               className={clsx(
-                'group flex w-full items-center gap-3 rounded-[var(--radius-control)] px-3 py-2.5 text-start transition-colors duration-200 md:flex-col md:items-stretch md:gap-2 md:rounded-none md:px-0 md:py-0 md:pb-3',
+                'group flex w-full items-center gap-3 rounded-[var(--radius-control)] px-3 py-2.5 text-start transition-colors md:flex-col md:items-stretch md:gap-2 md:rounded-none md:px-0 md:py-0 md:pb-3',
                 active ? 'bg-brand-wash md:bg-transparent' : 'hover:bg-line-soft md:hover:bg-transparent',
               )}
             >
