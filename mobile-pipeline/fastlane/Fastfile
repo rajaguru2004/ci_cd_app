@@ -1,4 +1,5 @@
-# Google Play release automation for any app the release console manages.
+# Release automation for any app the release console manages: Google Play for Android, App Store
+# Connect for iOS.
 #
 # The console's builder tests the code and builds the signed AAB; these lanes only talk to
 # Google Play, for the app the run names:
@@ -13,6 +14,18 @@
 # PLAY_VALIDATE_ONLY=true makes `deploy` a dress rehearsal: the bundle is uploaded into an edit
 # and Google validates the whole release (signature, version code, track, notes), but the edit
 # is never committed, so nothing is published and no version code is spent.
+#
+# On a Mac runner, for iOS (the console sends these lanes with every run; see
+# apps/builder/src/mac-jobs.ts for the steps around them):
+#
+#   fastlane ios signing   switch ios/Runner.xcodeproj to manual signing with the run's profiles
+#                          (every app and extension target), write ExportOptions.plist
+#   fastlane ios deploy    upload the IPA to App Store Connect: TestFlight, then App Store review
+#                          when IOS_DESTINATION=app_store; REHEARSAL=true only validates it
+#
+# The App Store Connect key arrives as a file (ASC_KEY_PATH) for the one step that uploads.
+# Export compliance is never answered here: an app that does not declare
+# ITSAppUsesNonExemptEncryption in its Info.plist is uploaded, and App Store Connect asks a person.
 require 'json'
 require 'time'
 
@@ -107,6 +120,207 @@ platform :android do
       runVersionCode: next_code
     })
     UI.success("Google Play key works for #{package_name}; highest versionCode: #{highest || 'none'}.")
+  end
+end
+
+# Targets that are signed into the IPA (test targets are never archived).
+SIGNED_PRODUCT_TYPES = %w[
+  com.apple.product-type.application
+  com.apple.product-type.app-extension
+  com.apple.product-type.extensionkit-extension
+  com.apple.product-type.app-extension.messages
+  com.apple.product-type.app-extension.messages-sticker-pack
+  com.apple.product-type.application.watchapp2
+  com.apple.product-type.application.watchapp2-container
+  com.apple.product-type.watchkit2-extension
+].freeze
+IOS_DESTINATIONS = %w[testflight app_store].freeze
+
+platform :ios do
+  desc "Switch the Xcode project to manual signing with the run's profiles and write ExportOptions.plist"
+  lane :signing do
+    require 'xcodeproj'
+    require 'plist'
+    project_path = File.join(required_env('RC_PROJECT'), 'ios', 'Runner.xcodeproj')
+    UI.user_error!("There is no #{project_path}: the console builds Flutter apps with an ios/ folder.") unless File.directory?(project_path)
+    team = required_env('TEAM_ID')
+    cert_name = required_env('CERT_NAME')
+    profiles = Dir[File.join(required_env('RC_SECRETS'), 'profiles', '*.mobileprovision')].map do |path|
+      p = FastlaneCore::ProvisioningProfile.parse(path)
+      prefix = Array(p['TeamIdentifier']).first.to_s
+      app_id = p['Entitlements']['application-identifier'].to_s.sub(/\A#{Regexp.escape(prefix)}\./, '')
+      { name: p['Name'], uuid: p['UUID'], app_id: app_id }
+    end
+    UI.user_error!('The run brought no provisioning profile.') if profiles.empty?
+    covers = lambda do |app_id, bundle_id|
+      app_id == '*' || app_id == bundle_id || (app_id.end_with?('.*') && bundle_id.start_with?(app_id[0..-2]))
+    end
+
+    project = Xcodeproj::Project.open(project_path)
+    signed = {}
+    project.native_targets.each do |target|
+      next unless SIGNED_PRODUCT_TYPES.include?(target.product_type)
+
+      target.build_configurations.each do |config|
+        next unless config.name == 'Release'
+
+        bundle_id = Array(config.resolve_build_setting('PRODUCT_BUNDLE_IDENTIFIER', target)).first.to_s
+        if bundle_id.empty? || bundle_id.include?('$(')
+          UI.user_error!("Target #{target.name} sets its bundle ID through a variable (#{bundle_id}); write it out in the project for the console to sign it.")
+        end
+        profile = profiles.select { |p| covers.call(p[:app_id], bundle_id) }.max_by { |p| p[:app_id] == bundle_id ? 1 : 0 }
+        unless profile
+          UI.user_error!("No App Store profile covers #{bundle_id} (target #{target.name}): upload its profile in the app's settings → iOS on the console.")
+        end
+        settings = config.build_settings
+        settings['CODE_SIGN_STYLE'] = 'Manual'
+        settings['DEVELOPMENT_TEAM'] = team
+        settings['CODE_SIGN_IDENTITY'] = cert_name
+        settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] = cert_name
+        settings['PROVISIONING_PROFILE_SPECIFIER'] = profile[:name]
+        settings.delete('PROVISIONING_PROFILE')
+        signed[bundle_id] = profile[:name]
+        UI.message("#{target.name} (#{bundle_id}): #{profile[:name]}")
+      end
+    end
+    UI.user_error!("No app target of #{project_path} has a Release configuration.") if signed.empty?
+    project.save
+
+    method = FastlaneCore::Helper.xcode_at_least?('15.3') ? 'app-store-connect' : 'app-store'
+    export = {
+      'method' => method,
+      'teamID' => team,
+      'signingStyle' => 'manual',
+      'signingCertificate' => required_env('CERT_SHA1'),
+      'provisioningProfiles' => signed,
+      'uploadSymbols' => true,
+      'manageAppVersionAndBuildNumber' => false,
+      'destination' => 'export'
+    }
+    path = File.join(required_env('RC_RUN'), 'ExportOptions.plist')
+    File.write(path, Plist::Emit.dump(export))
+    UI.success("Manual signing for #{signed.size} target#{signed.size == 1 ? '' : 's'}; #{File.basename(path)} (#{method}).")
+  end
+
+  desc 'Upload the IPA the Mac built to App Store Connect (TestFlight, then App Store review if asked)'
+  lane :deploy do
+    bundle_id = required_env('BUNDLE_ID')
+    version_name = required_env('VERSION_NAME')
+    build_number = Integer(required_env('BUILD_NUMBER'))
+    ipa = required_env('IPA_PATH')
+    UI.user_error!("No IPA at #{ipa}.") unless File.exist?(ipa)
+    destination = ENV.fetch('IOS_DESTINATION', 'testflight')
+    UI.user_error!("IOS_DESTINATION '#{destination}' is not one of: #{IOS_DESTINATIONS.join(', ')}.") unless IOS_DESTINATIONS.include?(destination)
+    rehearsal = ENV['REHEARSAL'] == 'true'
+    notes = File.read(required_env('NOTES_PATH')).strip
+    info = JSON.parse(File.read(required_env('BUILD_INFO_PATH')))
+    encryption_declared = [true, false].include?(info['usesNonExemptEncryption'])
+    app_id = ENV['ASC_APP_ID'].to_s
+    key = app_store_connect_api_key(
+      key_id: required_env('ASC_KEY_ID'),
+      issuer_id: required_env('ASC_ISSUER_ID'),
+      key_filepath: required_env('ASC_KEY_PATH'),
+      duration: 1200,
+      in_house: false
+    )
+    report = {
+      platform: 'ios',
+      bundleId: bundle_id,
+      destination: destination,
+      releaseStatus: ENV.fetch('IOS_RELEASE_STATUS', 'completed'),
+      versionName: version_name,
+      versionCode: build_number,
+      validatedOnly: rehearsal,
+      exportCompliance: encryption_declared ? 'declared in Info.plist' : 'not declared',
+      appStoreConnectUrl: app_id.empty? ? 'https://appstoreconnect.apple.com/apps' : "https://appstoreconnect.apple.com/apps/#{app_id}/testflight/ios"
+    }
+
+    if rehearsal
+      # App Store Connect checks the whole binary (signature, profile, bundle ID, version, build
+      # number, icons and entitlements) and keeps nothing.
+      upload_to_app_store(
+        api_key: key,
+        app_identifier: bundle_id,
+        ipa: ipa,
+        verify_only: true,
+        skip_metadata: true,
+        skip_screenshots: true,
+        skip_app_version_update: true,
+        run_precheck_before_submit: false,
+        force: true
+      )
+      write_report('release-info.json', report.merge(uploadedAt: Time.now.utc.iso8601, processing: 'not uploaded'))
+      UI.success("App Store Connect validated #{version_name} (#{build_number}); nothing was uploaded.")
+      next
+    end
+
+    if destination == 'app_store' && !encryption_declared
+      UI.user_error!(
+        'Submitting for App Store review needs the export-compliance answer in the app: add ' \
+        'ITSAppUsesNonExemptEncryption (true or false) to ios/Runner/Info.plist, or release to TestFlight and answer it there.'
+      )
+    end
+
+    highest = begin
+      latest_testflight_build_number(api_key: key, app_identifier: bundle_id, initial_build_number: 0)
+    rescue StandardError => e
+      UI.important("Could not read App Store Connect's latest build: #{e.message}")
+      nil
+    end
+    if highest && build_number <= highest.to_i
+      UI.user_error!(
+        "App Store Connect already has build #{highest}; this one is #{build_number}. " \
+        'Something uploaded in between: run the release again and the console picks the next free number.'
+      )
+    end
+    report[:previousHighestBuild] = highest
+
+    # Waits for Apple's processing and sets "What to Test", then stops (skip_submission) before
+    # pilot's distribute step, which would answer export compliance for an app that does not
+    # declare it: that answer is a person's to give. Internal testers get the build either way.
+    upload_to_testflight(
+      api_key: key,
+      app_identifier: bundle_id,
+      ipa: ipa,
+      changelog: notes,
+      skip_waiting_for_build_processing: false,
+      wait_processing_interval: 30,
+      wait_processing_timeout_duration: 3600,
+      skip_submission: true,
+      distribute_external: false,
+      notify_external_testers: false
+    )
+    report[:processing] = 'processed'
+    report[:uploadedAt] = Time.now.utc.iso8601
+
+    if destination == 'app_store'
+      upload_to_app_store(
+        api_key: key,
+        app_identifier: bundle_id,
+        app_version: version_name,
+        build_number: build_number.to_s,
+        skip_binary_upload: true,
+        skip_screenshots: true,
+        skip_metadata: true,
+        submit_for_review: true,
+        automatic_release: ENV['IOS_RELEASE_STATUS'] != 'draft',
+        run_precheck_before_submit: false,
+        force: true
+      )
+      report[:submittedForReview] = true
+    end
+
+    write_report('release-info.json', report)
+    if destination == 'app_store'
+      UI.success("#{version_name} (#{build_number}) is submitted for App Store review.")
+    elsif encryption_declared
+      UI.success("#{version_name} (#{build_number}) is on TestFlight with its notes.")
+    else
+      UI.success(
+        "#{version_name} (#{build_number}) is on TestFlight with its notes. App Store Connect asks for the export-compliance " \
+        'answer before testers can install it (TestFlight → the build), or declare ITSAppUsesNonExemptEncryption in Info.plist.'
+      )
+    end
   end
 end
 

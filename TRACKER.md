@@ -1,11 +1,13 @@
 # Mobile CI/CD POC — task tracker
 
-Status (2026-10-10 17:11 IST): **Phase 9 done — Build and Release run on this server by
-default, or, per app, on the app's own GitHub Actions (Settings → Where builds run).** Waiting
-on you: the console's public key on GitHub (§8), and a GitHub token (§9, "What only you can
-do") before GitHub Actions can run anything for real. Opened 2026-09-29 19:33 IST; Phase 8
-opened 2026-10-10 13:25 IST, finished 14:45; Phase 9 opened 16:05, finished 17:11 (≈1 h 6 min
-against the 4 h 10 min estimate).
+Status (2026-10-15 20:17 IST): **Phase 10 done and proven on a real Mac — FusionEco FieldOps
+1.1.0 (10) released to TestFlight from this console (run 17: tests, signed IPA and Apple's
+processing in about 18 minutes; §10, "first real Mac").** Phase 9 done: Build and Release run on this server by default, or, per app, on
+the app's own GitHub Actions (Settings → Where builds run). Waiting on you: the console's
+public key on GitHub (§8), and a GitHub token (§9, "What only you can do") before GitHub Actions
+can run anything for real. Opened 2026-09-29 19:33 IST; Phase 8 opened 2026-10-10 13:25 IST,
+finished 14:45; Phase 9 opened 16:05, finished 17:11 (≈1 h 6 min against the 4 h 10 min
+estimate); Phase 10 opened 2026-10-13 15:13 IST.
 
 Before Phase 8: built, deployed on this machine, verified end to end on this server (a source
 ZIP ran tests, built and signed the AAB, passed Google Play's validation; real releases put
@@ -419,3 +421,127 @@ Verified on this machine, with the console's own images:
   on a protected default branch, pull-request) rights beyond what reading needs.
 - A GitHub Actions run's log is copied back only once a step finishes; while it runs, the
   console points at GitHub's own page rather than tailing it live.
+
+---
+
+## 10. iOS on a Mac runner (opened 2026-10-13 15:13 IST)
+
+> "create the docker runner for the mac, so that mac should be able to get connected with our
+> server where we have deployed this solution; for any ios build triggered via our cicd app, it
+> will send to that mac runner connected to our server, that mac acts as the worker, create the
+> app and release via mac in the fastlane there in mac runner; we need that as the docker image
+> pushed to docker, so that with the compose file i can setup in the mac and verify it
+> successfully connect with the parent server; for testing alone this machine will act as the
+> parent and mac will act as the worker"
+
+Decisions taken without stopping (each one is yours to overrule):
+
+| Question | Decision |
+|---|---|
+| What the Docker image is | The Mac's **worker agent**. Xcode cannot run inside a Linux container (Docker on macOS runs Linux in a VM), so the agent runs each build step **on the Mac itself over SSH** (`host.docker.internal`; Remote Login on; the agent's own ed25519 key in `~/.ssh/authorized_keys`, `restrict`ed). The same agent also runs without Docker (`EXECUTOR=local`). |
+| How the Mac reaches the console | Outbound only: HTTP(S) to the console's own address (`http://10.193.206.192:7080` for the test; it was `192.168.0.189` until the office Wi-Fi's client isolation blocked the Mac), long-polling for work, so no port opens on the Mac. It goes `web → api → builder` like the browser does: one port, one TLS proxy for both. |
+| Who may connect | A token per Mac, made in the console (Runners → Add a Mac), shown once, stored hashed in the vault. The agent's own X25519 key is pinned on its first connect; a changed key is refused until someone resets it in the console. |
+| Secrets on the Mac | The distribution certificate and its password, the provisioning profiles and the App Store Connect key travel **sealed to the agent's pinned key** (X25519 + HKDF-SHA256 + AES-256-GCM: neither the web/api hop nor the network can read them), live in a per-run 0700 folder and a per-run keychain on the Mac, and are deleted when the run ends (cleanup steps run after a failure or a cancel too). |
+| What runs where | **Plan** on this server (git pull of the mirror or the ZIP, the bundle ID check, the signing check, App Store Connect's highest build + 1, the source packed for the Mac), then **Tests**, **Signed IPA** and **App Store Connect** on the Mac in that order: the same six stages (labels read "Signed IPA" and "App Store Connect"). One run per Mac at a time; iOS runs queue for the first free Mac and do not wait for this server's Android queue. |
+| Fastlane on the Mac | The console's own lanes, sent with each run (`mobile-pipeline/fastlane/Fastfile`, new `platform :ios`): `signing` (per-run keychain, certificate, profiles, the project switched to manual signing for every app/extension target, ExportOptions.plist), `deploy` (TestFlight, or App Review), `validate` (rehearsal), `unsign`. `flutter build ipa` builds. The Gemfile.lock pins Fastlane (`bundle exec`, gems cached on the Mac); a Homebrew `fastlane` is the fallback. |
+| iOS release targets | **TestFlight** (upload, wait for Apple's processing, set "What to Test"; internal testers get it) or **App Store review** (the same upload, then submitted for review; "Roll out" releases automatically once approved, "Keep as draft" waits for someone to release it). **Rehearsal** asks App Store Connect to validate the IPA and uploads nothing. Export-compliance answers are never given on your behalf. |
+| Build numbers | CFBundleVersion above App Store Connect's highest build of the app, above every iOS build this console made, never below pubspec's; CFBundleShortVersionString is the version name. Independent of Android's version codes. |
+| Signing | Manual signing (an Apple Distribution .p12 + App Store profiles), checked when uploaded: the password opens the .p12, each profile is an App Store profile of the same team, unexpired, carrying that certificate. Automatic (cloud) signing and `match` are not in this phase. |
+| The image | `rajaguru2004/release-console-mac-runner`, multi-arch (Apple silicon `linux/arm64` and Intel `linux/amd64`), pushed to Docker Hub as `:<version>` and `:latest`. |
+
+| # | Task | Estimate | Status |
+|---|---|---|---|
+| 10.1 | Design, decisions, this tracker | 20 min | done 15:25 |
+| 10.2 | Builder: Mac runners — tokens (hashed, shown once), pinned agent key, sealed run secrets, presence, the iOS run queue, the agent's routes (connect, poll, source, events, artifacts, complete), liveness, cancel, restart recovery | 2 h 30 min | done — `macs.ts` (pool, tokens hashed, key pinned, long poll, offer/accept/report/complete, lease 3 min, offer 60 s, wait 12 h, cancel, restart reconcile), `seal.ts`, agent routes in `main.ts` |
+| 10.3 | Builder: iOS per app — bundle ID, distribution certificate (.p12 opened and read), provisioning profiles (parsed, matched to the certificate and bundle ID), App Store Connect API key (ES256 JWT; reads the app and its builds) | 2 h | done — `ios.ts` (plist/CMS profile reader, .p12 via keytool, readiness), `appstore.ts` (ES256 JWT, app by bundle ID, builds); 21 tests with real openssl-made certs/.p12s/profiles and a JWT-checking stand-in App Store Connect |
+| 10.4 | Builder: the iOS pipeline — Plan here, the Mac jobs and their scripts, Fastlane iOS lanes, IPA/dSYM/build/release artifacts | 2 h 30 min | done — `pipeline.ts` `iosPipeline` (Plan here, source packed), `mac-jobs.ts` (Tests, Signed IPA, App Store Connect; bash 3.2, shellcheck clean), Fastfile `ios signing` / `ios deploy` (loads under fastlane 2.240.1) |
+| 10.5 | The Mac agent (`apps/mac-runner`): connect, long-poll, jobs with the console's step semantics, live logs, artifacts, cancel, SSH or local executor, host check (macOS, Xcode, Flutter, CocoaPods, Ruby/Fastlane), `check` and `pubkey` commands | 3 h | done — `apps/mac-runner/src` (agent, SSH and local executors, host probe, reporter, CLI check/pubkey/health) |
+| 10.6 | Agent image (multi-arch without emulation), `docker-compose.yml`, `.env.example`, `setup-mac.sh`, the Mac README | 1 h | done — image `rajaguru2004/release-console-mac-runner:1.0.0` + `:latest`, linux/arm64 + linux/amd64, pushed; compose, .env.example, setup-mac.sh, README |
+| 10.7 | API: the runner gateway (streamed), Runners, iOS settings, runs with a platform, IPA downloads, stage labels per platform | 1 h 30 min | done — `runners/` (console routes + streamed gateway), iOS routes, runs with platform, IPA download, stage labels; 51 tests incl. a 3 MB upload and a download through the gateway |
+| 10.8 | UI: Runners page (add a Mac: token and one command; status and host facts), iOS settings panel, release sheet platform choice, run view (Signed IPA, App Store Connect, IPA card), top bar | 3 h | done — Runners page, iOS settings panel, release sheet Platform, iOS outputs and headlines, Runners nav and Mac chip, streamed `/api/runner/v1` route |
+| 10.9 | Tests: builder units; the real agent against the real builder end to end (local executor and SSH over a real sshd); API | 2 h | done — builder 148, api 51, agent 9: an iOS release end to end (real builder + real agent + real Mac step scripts on a stand-in macOS toolbox: build, sign check against a real CMS profile and certificate, IPA/dSYMs/build-info/release-info back, no secret in any log, the Mac left clean) and a cancel that kills the step's process group; SSH executor against a real sshd |
+| 10.10 | Deploy here, push the image to Docker Hub, an agent container connecting to this console, screenshots | 1 h | done — console rebuilt and redeployed (healthy); the Docker Hub image pulled and run here with the console's own compose file against http://192.168.0.189:7080: connected, online, reported its one gap (no SSH host here); Runners and iOS settings screenshotted; the test runner removed again |
+| 10.11 | README, DESIGN.md, PRODUCT.md, this tracker, memory | 40 min | done — README (iOS section), apps/mac-runner/README.md, this tracker, memory |
+
+Estimate ≈ 19 h 50 min of work; at Phase 9's pace (a quarter of the estimate) ETA 2026-10-13
+~22:30 IST.
+
+### Phase 10 — results (2026-10-14)
+
+- **The image:** `rajaguru2004/release-console-mac-runner:1.0.0` (and `:latest`) on Docker Hub,
+  for Apple silicon and Intel, 243 MB, built without emulation (no RUN in the final stage).
+- **Verified here, for real:** the pushed image, started with the compose file the console
+  serves, reached `http://192.168.0.189:7080`, registered, showed online on the Runners page
+  and in `check`, and named its one gap (this Linux box has no SSH for it to build on, as a Mac
+  with Remote Login will). The console's public setup files answer at
+  `/api/runner/v1/files/{docker-compose.yml,setup-mac.sh,env.example}`.
+- **Verified end to end with stand-ins** (Jest, `apps/mac-runner/src/e2e.spec.ts`): an iOS
+  release from a source ZIP through the real builder, its gateway hop and the real agent,
+  running the real Mac step scripts against a stand-in macOS toolbox: build number 42 above
+  App Store Connect's 41, the IPA's signer checked against the real certificate's SHA-1 and a
+  real CMS profile, IPA/dSYMs/build-info/test report/release info back on the console, no
+  secret in any log, the run folder, keychain and profiles gone afterwards; and a cancel that
+  stops the step's whole process group while cleanup still runs. The SSH path against a real
+  `sshd` with the `restrict` key line, files both ways, a remote cancel and the host-key pin.
+- **Not verifiable here:** anything only a Mac does (Xcode, `security`, `codesign`, CocoaPods)
+  and anything only Apple does (App Store Connect processing, TestFlight, review). Those run for
+  the first time on your Mac; the scripts follow Apple's and fastlane's documented behaviour, and
+  fastlane's own source (2.240.1) was read for the TestFlight options used.
+
+### Phase 10 — first real Mac (2026-10-15)
+
+- **The Mac:** "Macmini" (an Intel MacBook Pro, macOS 26.3, Xcode 26.5, Flutter 3.47.6, Ruby
+  4.0.1), on the same Wi-Fi as this machine (`done`; the office Wi-Fi isolates its clients).
+  The pinned fastlane 2.240.1 installs and runs on Ruby 4.0.1 (bundler switches itself to the
+  lockfile's 2.5.22).
+- **First iOS app: FusionEco FieldOps** (`com.fusionapps.fieldops`, team 82QNNH4KJZ). Its `main`
+  failed its own tests (a scanned-link test pinned an old host; a widget test hung 10 minutes
+  without the SharedPreferences mock): fixed and pushed to its repo at your request (`ff16d5d`),
+  1318 tests passing.
+- **Run 16, Release → TestFlight with Rehearsal on: passed.** Tests on the Mac, a signed IPA
+  1.1.0 (9) back on the console with its dSYMs, and "Successfully verified package on App Store
+  Connect". A rehearsal uploads nothing, so App Store Connect shows no new build.
+- **Run 17, the real Release → TestFlight: 1.1.0 (10) is on TestFlight** (19:58 → 20:17 IST):
+  tests 3 min, signed IPA 8.5 min, upload 2 min, Apple's processing 3.5 min, then "What to Test"
+  set. Build number 10 = this console's last (9) + 1, above App Store Connect's 7.
+- **Three console bugs the real Mac found, fixed with a test that fails without each fix:**
+  1. Install signing called a valid identity invalid: `security find-identity | grep -q` under
+     `pipefail`, where `grep -q` stopping at the match kills `security` with SIGPIPE while it
+     writes its count line (`mac-jobs.ts`; the stand-in `security` now writes as the real one).
+  2. Every Mac request went through Next.js's buffering `/api` rewrite, not the streaming
+     runner route, so the 52 MB IPA was cut at 10 MB: a plain-list rewrite is checked before
+     dynamic routes; it is now a fallback rewrite (`apps/web/next.config.ts`).
+  3. Every idle long poll failed after 4 s and the agent waited 30 s, so a run could take up to
+     ~30 s to reach the Mac: the runner gateway reused global-pool sockets on which axios
+     (follow-redirects) leaves `timeout → destroy`, idle-timed at the builder's keep-alive hint
+     less a second. The gateway now opens its own connection (`runner-gateway.controller.ts`).
+- Tests: builder 148, API 52, agent 9; the Mac scripts shellcheck-clean.
+
+### What only you can do (Phase 10)
+
+1. **On the Mac:** Xcode (opened once, license accepted), Flutter on the login shell's PATH,
+   CocoaPods, Ruby 3 + bundler (or `brew install fastlane`), Docker Desktop, and System
+   Settings → General → Sharing → **Remote Login** on.
+2. **In the console** (open it at `http://10.193.206.192:7080`, not localhost): Runners → Add a
+   Mac → run the command it shows in the Mac's Terminal. The Mac should turn **Ready**.
+3. **Fusion HRM → Settings → iOS:** its bundle ID, the Apple Distribution **.p12** and password,
+   its **App Store provisioning profile(s)**, and an **App Store Connect API key** (Users and
+   Access → Integrations → Team keys, App Manager role): key ID, issuer ID, `.p8`.
+4. Then **Build** (Platform iOS) first; then **Release → TestFlight** with Rehearsal on; then a
+   real TestFlight release.
+5. Decide on export compliance: add `ITSAppUsesNonExemptEncryption` to `ios/Runner/Info.plist`
+   (App Store review requires it declared), or answer it in App Store Connect per build.
+6. The Mac test reuses this machine as the console; for a server, serve the console over HTTPS
+   and give Macs that address (`SERVER_URL`).
+
+### Known limits (Phase 10)
+
+- Manual signing only (a .p12 + App Store profiles); Xcode-managed (cloud) signing and `match`
+  are not in. Flavors (`--flavor`) are not in: the Runner target's Release configuration is
+  signed.
+- App Store review submits the processed build with `skip_metadata`: the App Store's "What's
+  New" is written in App Store Connect (the release notes become TestFlight's "What to Test").
+- One run per Mac, one runner per Mac account (two runners on one account would clean up each
+  other's run folders). The build and the signing run as the same macOS user: use an account
+  for builds only.
+- The Runners page does not show a Mac's network address (the web hop does not pass it on).

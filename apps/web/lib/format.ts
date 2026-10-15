@@ -67,10 +67,16 @@ export const short = (sha: string) => sha.slice(0, 7);
 /** "#12": a run's number within its app. */
 export const runLabel = (run: { number: number }) => `#${run.number}`;
 
+const TRACK_WORDS: Record<string, string> = { testflight: 'TestFlight', app_store: 'App Store review' };
+
+/** A release target in words: Google Play's track names as they are, TestFlight, App Store review. */
+export const trackWord = (track: string | null | undefined) => (track ? (TRACK_WORDS[track] ?? track) : '');
+
 /** What a run does, in the console's words. */
-export function runWhat(run: { mode: 'build' | 'release'; track: string | null; rehearsal: boolean }): string {
-  if (run.mode === 'release') return `${run.rehearsal ? 'Rehearsal' : 'Release'}${run.track ? ` → ${run.track}` : ''}`;
-  return 'Build and test';
+export function runWhat(run: { mode: 'build' | 'release'; track: string | null; rehearsal: boolean; platform?: 'android' | 'ios' }): string {
+  const ios = run.platform === 'ios' ? 'iOS ' : '';
+  if (run.mode === 'release') return `${ios}${run.rehearsal ? 'rehearsal' : 'release'}${run.track ? ` → ${trackWord(run.track)}` : ''}`.replace(/^./, (c) => c.toUpperCase());
+  return `${ios ? 'iOS build' : 'Build'} and test`;
 }
 
 /** Where a run's source came from: the branch and commit, or the ZIP. */

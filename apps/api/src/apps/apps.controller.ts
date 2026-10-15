@@ -102,6 +102,55 @@ class GithubTokenDto {
   token!: string;
 }
 
+class IosDto {
+  @IsString({ message: 'Enter the bundle ID (CFBundleIdentifier), e.g. com.company.app.' })
+  @MaxLength(155)
+  bundleId!: string;
+}
+
+class IosCertificateDto {
+  /** The .p12, base64. */
+  @IsString({ message: 'Choose the certificate’s .p12 file.' })
+  @MaxLength(200_000, { message: 'That file is too large to be an exported certificate (.p12).' })
+  p12!: string;
+
+  @IsString({ message: 'Enter the .p12 password.' })
+  @MaxLength(500)
+  password!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  fileName?: string;
+}
+
+class IosProfileDto {
+  /** The .mobileprovision, base64. */
+  @IsString({ message: 'Choose the .mobileprovision file.' })
+  @MaxLength(800_000, { message: 'That file is too large to be a provisioning profile.' })
+  data!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  fileName?: string;
+}
+
+class AppStoreKeyDto {
+  @IsString({ message: 'Enter the key ID.' })
+  @MaxLength(20)
+  keyId!: string;
+
+  @IsString({ message: 'Enter the issuer ID.' })
+  @MaxLength(60)
+  issuerId!: string;
+
+  /** The .p8's text. */
+  @IsString({ message: 'Choose the .p8 key file.' })
+  @MaxLength(5000, { message: 'That file is too large to be an App Store Connect key.' })
+  p8!: string;
+}
+
 /**
  * The organization's apps. Secrets go one way: a keystore or a Play key is handed to the
  * builder's vault and never comes back; answers carry its certificate or account, not the key.
@@ -207,5 +256,55 @@ export class AppsController {
   @Post(':id/github/secrets')
   syncGithubSecrets(@Param('id') id: string) {
     return this.builder.syncGithubSecrets(id);
+  }
+
+  // ─── iOS (built and released on a Mac runner) ──────────────────────────────────────
+
+  /** Turns the app's iOS side on, or changes its bundle ID. */
+  @Put(':id/ios')
+  setIos(@Param('id') id: string, @Body() dto: IosDto) {
+    return this.builder.setIos(id, dto.bundleId);
+  }
+
+  /** Back to Android only: the certificate, profiles and App Store Connect key are deleted. */
+  @Delete(':id/ios')
+  clearIos(@Param('id') id: string) {
+    return this.builder.clearIos(id);
+  }
+
+  @Put(':id/ios/certificate')
+  setIosCertificate(@Param('id') id: string, @Body() dto: IosCertificateDto) {
+    return this.builder.setIosCertificate(id, { ...dto });
+  }
+
+  @Delete(':id/ios/certificate')
+  clearIosCertificate(@Param('id') id: string) {
+    return this.builder.clearIosCertificate(id);
+  }
+
+  @Post(':id/ios/profiles')
+  addIosProfile(@Param('id') id: string, @Body() dto: IosProfileDto) {
+    return this.builder.addIosProfile(id, { ...dto });
+  }
+
+  @Delete(':id/ios/profiles/:uuid')
+  removeIosProfile(@Param('id') id: string, @Param('uuid') uuid: string) {
+    return this.builder.removeIosProfile(id, uuid);
+  }
+
+  @Put(':id/ios/app-store')
+  setAppStoreKey(@Param('id') id: string, @Body() dto: AppStoreKeyDto) {
+    return this.builder.setAppStoreKey(id, { ...dto });
+  }
+
+  @Delete(':id/ios/app-store')
+  clearAppStoreKey(@Param('id') id: string) {
+    return this.builder.clearAppStoreKey(id);
+  }
+
+  /** What App Store Connect says about the app now: found by its bundle ID, its latest builds. */
+  @Get(':id/ios/app-store')
+  appStore(@Param('id') id: string, @Query('refresh') refresh?: string) {
+    return this.builder.appStore(id, refresh === '1');
   }
 }

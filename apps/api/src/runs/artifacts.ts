@@ -10,6 +10,9 @@ export const ARTIFACTS = {
   aab: 'app-release-aab',
   buildInfo: 'build-info',
   release: 'play-release',
+  /** iOS runs (sent by the Mac): the IPA and its dSYMs, and App Store Connect's answer. */
+  ipa: 'app-release-ipa',
+  storeRelease: 'store-release',
 } as const;
 
 export interface PipelinePlan {
@@ -34,12 +37,21 @@ export interface PipelinePlan {
 }
 
 export interface BuildInfo {
+  /** ios for an IPA built on a Mac; absent (Android) otherwise. */
+  platform?: 'ios';
   versionName: string;
   versionCode: number;
   sizeBytes: number;
   sha256: string;
   signer: string;
-  certSha256: string;
+  certSha256?: string;
+  /** iOS: the distribution certificate's SHA-1, the team, the bundle ID and the profile it was signed with. */
+  certSha1?: string;
+  teamId?: string;
+  bundleId?: string;
+  profile?: { name: string; uuid: string };
+  usesNonExemptEncryption?: boolean | null;
+  xcode?: string;
   commit: string;
   ref: string;
   packageName?: string;
@@ -49,6 +61,15 @@ export interface BuildInfo {
 }
 
 export interface ReleaseInfo {
+  /** ios for an App Store Connect upload; absent (Google Play) otherwise. */
+  platform?: 'ios';
+  bundleId?: string;
+  destination?: 'testflight' | 'app_store';
+  previousHighestBuild?: number | null;
+  processing?: string;
+  exportCompliance?: string;
+  submittedForReview?: boolean;
+  appStoreConnectUrl?: string;
   packageName: string;
   track: string;
   releaseStatus: string;

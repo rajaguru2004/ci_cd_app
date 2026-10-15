@@ -13,6 +13,10 @@ export const STAGE_LABELS: Record<StageKey, string> = {
 
 export const STAGE_ORDER: StageKey[] = ['checkout', 'dependencies', 'tests', 'aab', 'fastlane', 'play'];
 
+/** An iOS run's six stages: its build is an IPA, its store App Store Connect. */
+export const stageLabel = (key: StageKey, platform: 'android' | 'ios' = 'android') =>
+  platform === 'ios' && key === 'aab' ? 'Signed IPA' : platform === 'ios' && key === 'play' ? 'App Store Connect' : STAGE_LABELS[key];
+
 /**
  * Stage colour per state, shared by the ring and the strip so the strip reads as the ring
  * unrolled. Status hues draw; they never set words.
@@ -67,12 +71,12 @@ function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: nu
   return `M ${x1.toFixed(3)} ${y1.toFixed(3)} A ${r} ${r} 0 0 1 ${x2.toFixed(3)} ${y2.toFixed(3)}`;
 }
 
-export function ringLabel(run: Pick<RunSummary, 'number' | 'state' | 'stages'> & { app?: { name: string } | null }): string {
-  const parts = run.stages.map((s) => `${STAGE_LABELS[s.key]} ${STATE_WORD[s.state]}`);
+export function ringLabel(run: Pick<RunSummary, 'number' | 'state' | 'stages'> & { app?: { name: string } | null; platform?: 'android' | 'ios' }): string {
+  const parts = run.stages.map((s) => `${stageLabel(s.key, run.platform)} ${STATE_WORD[s.state]}`);
   return `${run.app ? `${run.app.name} ` : ''}run #${run.number}, ${RUN_WORD[run.state].toLowerCase()}: ${parts.join(', ')}`;
 }
 
-/** True when this run put a build on a Google Play track. */
+/** True when this run put a build on a Google Play track (or, for iOS, on App Store Connect). */
 export function shipped(run: Pick<RunSummary, 'mode' | 'stages' | 'rehearsal'>): boolean {
   return run.mode === 'release' && !run.rehearsal && run.stages.find((s) => s.key === 'play')?.state === 'success';
 }

@@ -99,6 +99,30 @@ beforeAll(async () => {
     void (async () => {
       if (req.headers['x-builder-token'] !== TOKEN) return json(res, 401, { message: 'no' });
       const url = req.url ?? '';
+      // The Mac runners' gateway: bytes and headers as the agent sent them.
+      if (url.startsWith('/runner/v1/')) {
+        const chunks: Buffer[] = [];
+        for await (const c of req) chunks.push(c as Buffer);
+        const sent = Buffer.concat(chunks);
+        if (url === '/runner/v1/runs/5/source') {
+          res.writeHead(200, { 'content-type': 'application/gzip', 'content-length': '6' });
+          return res.end(Buffer.from([0x1f, 0x8b, 0, 1, 2, 3]));
+        }
+        // A long poll: the builder holds it before answering.
+        if (url === '/runner/v1/held') {
+          await new Promise((r) => setTimeout(r, 1500));
+          return json(res, 200, { held: true });
+        }
+        return json(res, url.endsWith('/denied') ? 401 : 200, {
+          url,
+          method: req.method,
+          authorization: req.headers.authorization ?? null,
+          address: req.headers['x-runner-address'] ?? null,
+          type: req.headers['content-type'] ?? null,
+          bytes: sent.length,
+          json: req.headers['content-type'] === 'application/json' ? JSON.parse(sent.toString() || 'null') : null,
+        });
+      }
       const text = await body(req);
       received.push({ method: req.method ?? '', url, body: text ? JSON.parse(text) : null });
       const p = new URL(url, 'http://b').pathname;
@@ -131,6 +155,8 @@ beforeAll(async () => {
       json(res, 404, { message: 'No run 9 on this server.' });
     })();
   });
+  // Keep-Alive: timeout=2, so a pooled socket idles out after 1 s, inside the held poll below.
+  builder.keepAliveTimeout = 2000;
   await new Promise<void>((r) => builder.listen(0, '127.0.0.1', r));
 
   Object.assign(process.env, {
@@ -192,7 +218,7 @@ describe('the console API', () => {
     expect(last().body).toEqual({
       app: 'fusionhrm',
       source: { kind: 'git', sha: SHA1 },
-      params: { mode: 'release', track: 'beta', releaseNotes: 'Offline payslips', releaseStatus: 'completed', versionName: '', rehearsal: true },
+      params: { platform: 'android', mode: 'release', track: 'beta', releaseNotes: 'Offline payslips', releaseStatus: 'completed', versionName: '', rehearsal: true },
       startedBy: 'console',
     });
     const noNotes = await send('/apps/fusionhrm/runs', 'POST', { mode: 'release' });
@@ -266,8 +292,33 @@ describe('the console API', () => {
     expect(last().body).toEqual({ email: 'raja@company.com', name: null });
   });
 
+  it('passes a Mac runner through to the builder without a session: its token, its JSON, its files both ways', async () => {
+    const auth = { authorization: 'Bearer rcr_0123abcd_x' };
+    const poll = await fetch(`${base}/runner/v1/poll`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ activeRun: null }) });
+    expect(poll.status).toBe(200);
+    expect(await poll.json()).toMatchObject({ url: '/runner/v1/poll', method: 'POST', authorization: 'Bearer rcr_0123abcd_x', json: { activeRun: null } });
+    const ipa = Buffer.alloc(3 * 1024 * 1024, 7);
+    const put = await fetch(`${base}/runner/v1/runs/5/artifacts/app-release-ipa/app-release.ipa`, { method: 'PUT', headers: { ...auth, 'content-type': 'application/octet-stream' }, body: ipa });
+    expect(await put.json()).toMatchObject({ method: 'PUT', type: 'application/octet-stream', bytes: ipa.length });
+    const src = await fetch(`${base}/runner/v1/runs/5/source`, { headers: auth });
+    expect(src.headers.get('content-type')).toBe('application/gzip');
+    expect(Buffer.from(await src.arrayBuffer())).toEqual(Buffer.from([0x1f, 0x8b, 0, 1, 2, 3]));
+    const denied = await fetch(`${base}/runner/v1/denied`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    expect(denied.status).toBe(401);
+  });
+
   it('re-runs through the builder and follows the new run', async () => {
     const res = await fetch(`${base}/runs/1/rerun`, { method: 'POST', headers: { cookie } });
     expect(await res.json()).toEqual({ runId: 4, number: 4 });
+  });
+
+  it('holds a Mac runner long poll open after the console API has used a pooled connection to the builder', async () => {
+    // An ordinary console request: BuilderClient's axios returns its socket to the global pool.
+    expect((await fetch(`${base}/apps`, { headers: { cookie } })).status).toBe(200);
+    const started = Date.now();
+    const poll = await fetch(`${base}/runner/v1/held`, { method: 'POST', headers: { authorization: 'Bearer rcr_0123abcd_x', 'content-type': 'application/json' }, body: '{}' });
+    expect(poll.status).toBe(200);
+    expect(await poll.json()).toEqual({ held: true });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1400);
   });
 });

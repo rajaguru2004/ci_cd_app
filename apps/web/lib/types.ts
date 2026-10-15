@@ -5,7 +5,103 @@ export type StageState = 'pending' | 'queued' | 'running' | 'success' | 'failed'
 export type RunState = 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'skipped' | 'waiting';
 export type Mode = 'build' | 'release';
 export type PlayTrack = 'internal' | 'alpha' | 'beta' | 'production';
-export type RunnerKind = 'server' | 'github';
+export type IosTrack = 'testflight' | 'app_store';
+export type Platform = 'android' | 'ios';
+export type RunnerKind = 'server' | 'github' | 'mac';
+
+export interface IosCertificate {
+  fileName: string;
+  name: string;
+  teamId: string | null;
+  kind: 'distribution' | 'development' | 'other';
+  sha1: string;
+  sha256: string;
+  validFrom: string;
+  validUntil: string;
+  uploadedAt: string;
+}
+
+export interface IosProfile {
+  uuid: string;
+  name: string;
+  teamId: string;
+  appId: string;
+  type: 'app-store' | 'ad-hoc' | 'development' | 'enterprise';
+  expiresAt: string;
+  certificates: string[];
+  fileName: string;
+  uploadedAt: string;
+}
+
+export interface IosSetup {
+  bundleId: string;
+  certificate: IosCertificate | null;
+  profiles: IosProfile[];
+  appStore: { keyId: string; issuerId: string; appId: string | null; appName: string | null; checkedAt: string | null; message: string | null; updatedAt: string } | null;
+  updatedAt: string;
+}
+
+export interface AppStoreBuild {
+  buildNumber: string;
+  versionName: string | null;
+  uploadedAt: string | null;
+  processingState: string | null;
+  expired: boolean;
+}
+
+export type AppStoreResponse =
+  | { configured: false; bundleId: string | null; reason: string }
+  | { configured: true; bundleId: string; keyId: string; error: string; app: AppView }
+  | { configured: true; bundleId: string; keyId: string; appId: string; appName: string; checkedAt: string; builds: AppStoreBuild[]; highestBuild: number | null; app: AppView; error?: undefined };
+
+export interface HostFacts {
+  checkedAt: string;
+  reachable: boolean;
+  os: string | null;
+  arch: string | null;
+  hostname: string | null;
+  cpu: string | null;
+  memoryGb: number | null;
+  diskFreeGb: number | null;
+  xcode: string | null;
+  iosSdk: string | null;
+  flutter: string | null;
+  cocoapods: string | null;
+  ruby: string | null;
+  fastlane: string | null;
+  problems: string[];
+  ready: boolean;
+}
+
+export interface MacRunnerView {
+  id: string;
+  name: string;
+  tokenHint: string;
+  tokenCreatedAt: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+  lastAddress: string | null;
+  online: boolean;
+  state: 'offline' | 'not-ready' | 'idle' | 'busy';
+  run: { id: number; appId: string | null; appName: string | null; number: number } | null;
+  keyFingerprint: string | null;
+  keyPinnedAt: string | null;
+  refusedKey: { fingerprint: string; at: string } | null;
+  agent: { version: string; executor: 'ssh' | 'local'; hostUser: string | null; hostAddress: string | null } | null;
+  host: HostFacts | null;
+}
+
+export interface MacsResponse {
+  runners: MacRunnerView[];
+  waiting: Array<{ id: number; appId: string | null; appName: string | null; number: number; queuedAt: string | null }>;
+  image: string;
+}
+
+export interface NewMacRunner {
+  runner: MacRunnerView;
+  token: string;
+  image: string;
+}
 
 export interface GithubCheck {
   checkedAt: string;
@@ -64,8 +160,12 @@ export interface AppView {
   } | null;
   signing: { mode: 'console' | 'repository'; fileName: string | null; keyAlias: string | null; certificate: CertInfo | null; updatedAt: string | null };
   play: { source: 'app' | 'default'; clientEmail: string | null; projectId: string | null; updatedAt: string | null };
-  /** Where Build and Release run by default; a run can ask for the other. */
-  runner: { kind: RunnerKind; github: GithubSetup | null };
+  /** Where Android's Build and Release run by default; a run can ask for the other. iOS runs on a Mac. */
+  runner: { kind: Exclude<RunnerKind, 'mac'>; github: GithubSetup | null };
+  /** The app's iOS side, once set up. */
+  ios: IosSetup | null;
+  /** What stops an iOS build and an iOS release now; null without iOS. */
+  iosProblems: { build: string[]; release: string[] } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -75,15 +175,19 @@ export interface RunSummary {
   id: number;
   /** The run's number within its app. */
   number: number;
-  app: { id: string; name: string; packageName: string } | null;
+  app: { id: string; name: string; packageName: string; bundleId?: string | null } | null;
+  /** android, or ios (built and released on a Mac runner). */
+  platform: Platform;
   mode: Mode;
-  track: PlayTrack | null;
+  track: PlayTrack | IosTrack | null;
   /** A release Google validated without publishing. */
   rehearsal: boolean;
   /** This server's builder, or the app's GitHub Actions. */
   runner: RunnerKind;
   /** Where to open the run on GitHub, once it has dispatched; null for a server run. */
   remoteUrl: string | null;
+  /** An iOS run: the Mac that has it, and whether it still waits for one. */
+  mac: { runner: string | null; waiting: boolean } | null;
   source: { kind: 'git' | 'zip'; branch: string | null; fileName: string | null; sha: string | null; subject: string | null; author: string | null };
   state: RunState;
   createdAt: string;
@@ -164,9 +268,10 @@ export interface JobView {
 }
 
 export interface PipelinePlan {
+  platform?: Platform;
   mode: Mode;
   trigger: 'git' | 'upload';
-  track: PlayTrack;
+  track: PlayTrack | IosTrack;
   releaseStatus: 'completed' | 'draft';
   versionName: string;
   versionCode: number;
@@ -191,12 +296,19 @@ export interface TestSummary {
 }
 
 export interface BuildInfo {
+  platform?: 'ios';
   versionName: string;
   versionCode: number;
   sizeBytes: number;
   sha256: string;
   signer: string;
-  certSha256: string;
+  certSha256?: string;
+  certSha1?: string;
+  teamId?: string;
+  bundleId?: string;
+  profile?: { name: string; uuid: string };
+  usesNonExemptEncryption?: boolean | null;
+  xcode?: string;
   commit: string;
   ref: string;
   signedBy?: 'console' | 'repository';
@@ -204,8 +316,14 @@ export interface BuildInfo {
 }
 
 export interface ReleaseInfo {
+  platform?: 'ios';
+  destination?: IosTrack;
+  processing?: string;
+  exportCompliance?: string;
+  submittedForReview?: boolean;
+  appStoreConnectUrl?: string;
   packageName: string;
-  track: PlayTrack;
+  track: PlayTrack | IosTrack;
   releaseStatus: string;
   versionName: string | null;
   versionCode: number;
@@ -293,6 +411,8 @@ export interface BuilderStatus {
   queued: number;
   current: { id: number; appId: string | null; appName: string | null; number: number; job: string | null } | null;
   onGithub: Array<{ id: number; appId: string | null; appName: string | null; number: number; job: string | null }>;
+  onMac?: Array<{ id: number; appId: string | null; appName: string | null; number: number; job: string | null; runner: string | null; waiting: boolean }>;
+  macs?: { registered: number; online: number; ready: number; busy: number; waiting: number } | null;
   defaultPlayKey: string | null;
   toolchain: { flutter: string | null; java: string | null };
 }
@@ -306,10 +426,11 @@ export interface SetupResponse {
 }
 
 export interface StartRunBody {
+  platform?: Platform;
   mode: Mode;
   /** Omitted: the app's own default (its settings → Where builds run). */
-  runner?: RunnerKind;
-  track?: PlayTrack;
+  runner?: Exclude<RunnerKind, 'mac'>;
+  track?: PlayTrack | IosTrack;
   releaseNotes?: string;
   releaseStatus?: 'completed' | 'draft';
   versionName?: string;

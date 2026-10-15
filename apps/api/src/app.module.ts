@@ -13,6 +13,8 @@ import { BuilderClient, BuilderError } from './builder/builder.client';
 import { CONSOLE_CONFIG, ConsoleConfig, readConfig } from './config';
 import { GithubController } from './github.controller';
 import { KeysController } from './keys/keys.controller';
+import { RunnerGatewayController } from './runners/runner-gateway.controller';
+import { RunnersController } from './runners/runners.controller';
 import { RunsController } from './runs/runs.controller';
 import { RunsService } from './runs/runs.service';
 import { SetupController } from './setup.controller';
@@ -67,7 +69,7 @@ class ConsoleConfigModule {}
       }),
     }),
   ],
-  controllers: [HealthController, AuthController, AppsController, KeysController, RunsController, SetupController, GithubController],
+  controllers: [HealthController, AuthController, AppsController, KeysController, RunsController, SetupController, GithubController, RunnersController, RunnerGatewayController],
   providers: [
     BuilderClient,
     RunsService,

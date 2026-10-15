@@ -11,7 +11,7 @@ import type { RunApp, RunParams, RunRecord } from './types';
  * records against what GitHub Actions would report for the same outcomes.
  */
 
-const params: RunParams = { mode: 'build', track: 'internal', releaseNotes: '', releaseStatus: 'completed', versionName: '', versionCode: 7, rehearsal: false };
+const params: RunParams = { platform: 'android', mode: 'build', track: 'internal', releaseNotes: '', releaseStatus: 'completed', versionName: '', versionCode: 7, rehearsal: false };
 const app: RunApp = { id: 'demo', name: 'Demo', packageName: 'com.example.demo', signing: 'repository', projectPath: '' };
 const services = {} as Services;
 

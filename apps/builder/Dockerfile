@@ -65,6 +65,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=node:20-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 COPY mobile-pipeline/fastlane /opt/pipeline/fastlane
+# What a Mac downloads to set its runner up (served at /api/runner/v1/files/…).
+COPY apps/mac-runner/docker-compose.yml apps/mac-runner/setup-mac.sh apps/mac-runner/.env.example /opt/mac-runner/
 COPY --from=runner-build /app /opt/runner
 ENV NODE_ENV=production \
     PORT=4000 \

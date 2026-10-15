@@ -71,9 +71,15 @@ export class RunsController {
   @HttpCode(202)
   async start(@Param('id') id: string, @Body() dto: StartRunDto) {
     if (dto.mode === 'release' && !dto.releaseNotes) {
-      throw new BadRequestException('Release notes are required: they are the "What\'s new" text on Google Play.');
+      throw new BadRequestException(dto.platform === 'ios' ? 'Release notes are required: they are the "What to Test" text on TestFlight.' : 'Release notes are required: they are the "What\'s new" text on Google Play.');
     }
-    const run = await this.builder.startRun({ app: id, source: { kind: 'git', branch: dto.branch, sha: dto.sha }, params: params(dto), startedBy: 'console', runner: runner(dto) });
+    const run = await this.builder.startRun({
+      app: id,
+      source: { kind: 'git', branch: dto.branch, sha: dto.sha },
+      params: params(dto),
+      startedBy: 'console',
+      runner: dto.platform === 'ios' ? undefined : runner(dto),
+    });
     return { runId: run.id, number: run.number };
   }
 
@@ -99,7 +105,7 @@ export class RunsController {
       throw new BadRequestException('That file is not a ZIP. On GitHub use Code → Download ZIP and upload that file.');
     }
     if (dto.mode === 'release' && !dto.releaseNotes) {
-      throw new BadRequestException('Release notes are required: they are the "What\'s new" text on Google Play.');
+      throw new BadRequestException(dto.platform === 'ios' ? 'Release notes are required: they are the "What to Test" text on TestFlight.' : 'Release notes are required: they are the "What\'s new" text on Google Play.');
     }
     const run = await this.builder.startRun({
       app: dto.app,
@@ -125,6 +131,16 @@ export class RunsController {
     const which = file === 'mapping' ? 'mapping' : 'aab';
     const out = await this.runs.bundle(id, which);
     res.setHeader('Content-Type', which === 'mapping' ? 'text/plain; charset=utf-8' : 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${out.name}"`);
+    res.setHeader('Content-Length', String(out.size));
+    createReadStream(out.path).pipe(res);
+  }
+
+  /** An iOS run's IPA (or ?file=dsym, its crash symbols), as its Mac sent them. */
+  @Get('runs/:id/ipa')
+  async ipa(@Param('id', ParseIntPipe) id: number, @Query('file') file: string | undefined, @Res() res: Response): Promise<void> {
+    const out = await this.runs.ipa(id, file === 'dsym' ? 'dsym' : 'ipa');
+    res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${out.name}"`);
     res.setHeader('Content-Length', String(out.size));
     createReadStream(out.path).pipe(res);

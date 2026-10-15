@@ -51,6 +51,12 @@ export const STAGES: ReadonlyArray<{ key: StageKey; label: string }> = [
   { key: 'play', label: 'Google Play' },
 ];
 
+/** The same six stages for an iOS run: its build is an IPA and its store App Store Connect. */
+const IOS_LABELS: Partial<Record<StageKey, string>> = { aab: 'Signed IPA', play: 'App Store Connect' };
+
+export const stageLabel = (key: StageKey, platform: 'android' | 'ios' = 'android') =>
+  (platform === 'ios' ? IOS_LABELS[key] : undefined) ?? STAGES.find((s) => s.key === key)!.label;
+
 interface JobRule {
   /** Stage for "Set up job" and for a job that failed before its first step. */
   first: StageKey;
@@ -62,6 +68,7 @@ interface JobRule {
 
 const SETUP = /^(Set up job|Checkout code)$/;
 const PLAY_PREP = /^(Set up job|Checkout code|Prepare Fastlane|Set up Ruby and Fastlane|Install Fastlane|Download AAB|Write release notes)$/;
+const STORE_PREP = /^(Set up job|Prepare Fastlane|Set up Ruby and Fastlane|Write release notes)$/;
 
 export const JOB_RULES: Readonly<Record<string, JobRule>> = {
   Plan: { first: 'checkout', steps: [], rest: 'checkout' },
@@ -78,6 +85,9 @@ export const JOB_RULES: Readonly<Record<string, JobRule>> = {
   // GitHub Actions splits the AAB build and its re-signing into two jobs; both are still the aab stage.
   'Sign AAB': { first: 'aab', steps: [], rest: 'aab' },
   'Google Play': { first: 'fastlane', steps: [[PLAY_PREP, 'fastlane']], rest: 'play' },
+  // An iOS run on a Mac: the IPA is the build stage, App Store Connect the store stage.
+  'Signed IPA': { first: 'aab', steps: [], rest: 'aab' },
+  'App Store Connect': { first: 'fastlane', steps: [[STORE_PREP, 'fastlane']], rest: 'play' },
   'Google Play access': {
     first: 'fastlane',
     steps: [[/^(Set up job|Checkout code|Set up Ruby and Fastlane)$/, 'fastlane']],
@@ -107,7 +117,7 @@ export interface StageView {
   steps: StepView[];
 }
 
-type RunLike = { status: string; conclusion: string | null };
+type RunLike = { status: string; conclusion: string | null; params?: { platform?: 'android' | 'ios' } };
 
 export function runState(run: RunLike): RunState {
   if (run.status === 'completed') {
@@ -186,7 +196,9 @@ export function mapStages(jobs: GhJob[], run: RunLike): StageView[] {
   }
 
   const finished = run.status === 'completed';
-  return STAGES.map(({ key, label }) => {
+  const platform = run.params?.platform ?? 'android';
+  return STAGES.map(({ key }) => {
+    const label = stageLabel(key, platform);
     const { steps, jobs: stageJobs } = buckets.get(key)!;
     let state = aggregate(key, steps, stageJobs);
     // A finished run leaves nothing waiting: whatever never started was cancelled with the
@@ -265,6 +277,7 @@ function aggregate(stage: StageKey, steps: StepView[], jobs: GhJob[]): StageStat
 
 export const PLAY_TRACKS = ['internal', 'alpha', 'beta', 'production'] as const;
 export type PlayTrack = (typeof PLAY_TRACKS)[number];
+export const IOS_TRACKS = ['testflight', 'app_store'] as const;
 
 // ─── Job views ─────────────────────────────────────────────────────────────────────────
 

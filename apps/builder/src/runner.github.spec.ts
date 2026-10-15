@@ -6,18 +6,20 @@ import { connect } from 'net';
 import { join } from 'path';
 import { GithubActions } from './actions';
 import { AppStore } from './apps';
+import { AppStoreClient } from './appstore';
 import { dirs } from './config';
 import { Git } from './git';
 import { GithubClient } from './github';
 import { JobLog } from './log';
 import { KeyStore } from './keys';
+import { MacPool } from './macs';
 import { PlayClient } from './play';
 import { releasePipeline, type Services } from './pipeline';
 import { Runner } from './runner';
 import { RunStore } from './store';
 import { FakeGithub } from './testing-github';
 import { tempConfig } from './testing';
-import type { JobRecord, RunParams, RunRecord } from './types';
+import type { GithubRemote, JobRecord, RunParams, RunRecord } from './types';
 import { Vault } from './vault';
 import { WORKFLOW_PATH, type WorkflowPlan } from './workflow';
 
@@ -126,6 +128,8 @@ async function harness(): Promise<Harness> {
     git,
     play: new PlayClient('http://127.0.0.1:1'),
     github,
+    appStore: new AppStoreClient('http://127.0.0.1:1'),
+    macs: new MacPool(vault, store),
     usedVersionCodes: async () => [],
     lockApp: (id, fn) => {
       const next = (locks.get(id) ?? Promise.resolve()).catch(() => undefined).then(fn);
@@ -141,7 +145,7 @@ async function harness(): Promise<Harness> {
   return h;
 }
 
-const buildParams: RunParams = { mode: 'build', track: 'internal', releaseNotes: '', releaseStatus: 'completed', versionName: '', versionCode: null, rehearsal: false };
+const buildParams: RunParams = { platform: 'android', mode: 'build', track: 'internal', releaseNotes: '', releaseStatus: 'completed', versionName: '', versionCode: null, rehearsal: false };
 const iso = () => new Date().toISOString();
 
 maybe('a run on GitHub Actions, through the real Runner and pipeline', () => {
@@ -172,7 +176,7 @@ maybe('a run on GitHub Actions, through the real Runner and pipeline', () => {
     const plan = done.jobs[0];
     expect(plan.steps.map((s) => s.name)).toEqual(['Set up job', 'Checkout code', 'Resolve plan', 'Copy secrets to GitHub', 'Start on GitHub Actions', 'Complete job']);
     expect(plan.steps.every((s) => s.conclusion === 'success')).toBe(true);
-    expect(done.remote!.runId).not.toBeNull();
+    expect((done.remote as GithubRemote).runId).not.toBeNull();
     expect(done.plan).toMatchObject({ versionName: '1.0.1', packageName: 'com.acme.app' });
     expect(done.source.sha).toMatch(/^[0-9a-f]{40}$/);
     expect(h.fake.dispatches).toHaveLength(1);
@@ -251,7 +255,7 @@ maybe('a run on GitHub Actions, through the real Runner and pipeline', () => {
     const done = (await h.store.get(id))!;
     expect(done.status).toBe('completed');
     expect(done.conclusion).toBe('success');
-    expect(done.remote!.runId).not.toBeNull();
+    expect((done.remote as GithubRemote).runId).not.toBeNull();
     expect(done.jobs.slice(1).every((j) => j.conclusion === 'success')).toBe(true);
   }, 30_000);
 
@@ -272,7 +276,7 @@ maybe('a run on GitHub Actions, through the real Runner and pipeline', () => {
     // Wait until the Plan job has dispatched the run on GitHub.
     for (let i = 0; i < 100; i += 1) {
       const current = await h.store.get(run.id);
-      if (current?.remote?.runId) break;
+      if ((current?.remote as GithubRemote | undefined)?.runId) break;
       await new Promise((r) => setTimeout(r, 50));
     }
     await h.runner.cancel(run.id);

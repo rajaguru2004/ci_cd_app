@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Release Console — Mac runner (runs on the Mac)
+#
+# This container is the Mac's worker: it connects to the console (SERVER_URL), takes the iOS
+# runs the console hands it, and runs their steps on this Mac over SSH, where Xcode, Flutter,
+# CocoaPods and Fastlane are. Nothing listens on the Mac: the runner only dials out.
+#
+#   1. System Settings → General → Sharing → Remote Login: on, for the account in MAC_USER
+#   2. .env next to this file (from .env.example, or the one the console shows):
+#      SERVER_URL, RUNNER_TOKEN, MAC_USER
+#   3. docker compose run --rm runner pubkey >> ~/.ssh/authorized_keys
+#   4. docker compose up -d
+#   5. docker compose exec runner node dist/cli.js check
+#
+# setup-mac.sh does all of it (the console's Runners page gives the one command).
+# ─────────────────────────────────────────────────────────────────────────────
+name: release-console-runner
+
+services:
+  runner:
+    image: ${RUNNER_IMAGE:-rajaguru2004/release-console-mac-runner:latest}
+    container_name: release_console_runner
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    extra_hosts:
+      # Docker Desktop and OrbStack resolve this name already; Colima (and Linux) need the mapping.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # The runner's own keys: the one the console seals each run's secrets to, the SSH key it
+      # signs in to the Mac with, and the Mac's SSH host key as first seen.
+      - runner-data:/data
+    # A stop lets a run in progress remove its signing (keychain, profiles) from the Mac first.
+    stop_grace_period: 2m
+    healthcheck:
+      test: ["CMD", "node", "dist/cli.js", "health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  runner-data: {}

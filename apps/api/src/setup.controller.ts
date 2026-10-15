@@ -10,7 +10,7 @@ export class SetupController {
   @Get('builder')
   async status() {
     const health = await this.builder.health();
-    return health ?? { ok: false, busy: false, queued: 0, current: null, defaultPlayKey: null, toolchain: { flutter: null, java: null } };
+    return health ?? { ok: false, busy: false, queued: 0, current: null, onGithub: [], onMac: [], macs: null, defaultPlayKey: null, toolchain: { flutter: null, java: null } };
   }
 
   @Get('setup')

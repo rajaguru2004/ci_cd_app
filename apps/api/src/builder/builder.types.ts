@@ -6,7 +6,86 @@
 export type Status = 'queued' | 'in_progress' | 'completed';
 export type Conclusion = 'success' | 'failure' | 'cancelled' | 'skipped' | null;
 export type PlayTrack = 'internal' | 'alpha' | 'beta' | 'production';
-export type RunnerKind = 'server' | 'github';
+export type IosTrack = 'testflight' | 'app_store';
+export type Platform = 'android' | 'ios';
+export type RunnerKind = 'server' | 'github' | 'mac';
+
+export interface IosCertificate {
+  fileName: string;
+  name: string;
+  teamId: string | null;
+  kind: 'distribution' | 'development' | 'other';
+  sha1: string;
+  sha256: string;
+  validFrom: string;
+  validUntil: string;
+  uploadedAt: string;
+}
+
+export interface IosProfile {
+  uuid: string;
+  name: string;
+  teamId: string;
+  appId: string;
+  type: 'app-store' | 'ad-hoc' | 'development' | 'enterprise';
+  expiresAt: string;
+  certificates: string[];
+  fileName: string;
+  uploadedAt: string;
+}
+
+export interface IosSetup {
+  bundleId: string;
+  certificate: IosCertificate | null;
+  profiles: IosProfile[];
+  appStore: { keyId: string; issuerId: string; appId: string | null; appName: string | null; checkedAt: string | null; message: string | null; updatedAt: string } | null;
+  updatedAt: string;
+}
+
+/** What a Mac runner last found on its Mac. */
+export interface HostFacts {
+  checkedAt: string;
+  reachable: boolean;
+  os: string | null;
+  arch: string | null;
+  hostname: string | null;
+  cpu: string | null;
+  memoryGb: number | null;
+  diskFreeGb: number | null;
+  xcode: string | null;
+  iosSdk: string | null;
+  flutter: string | null;
+  cocoapods: string | null;
+  ruby: string | null;
+  fastlane: string | null;
+  problems: string[];
+  ready: boolean;
+}
+
+export interface MacRunnerView {
+  id: string;
+  name: string;
+  tokenHint: string;
+  tokenCreatedAt: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+  lastAddress: string | null;
+  online: boolean;
+  state: 'offline' | 'not-ready' | 'idle' | 'busy';
+  run: { id: number; appId: string | null; appName: string | null; number: number } | null;
+  keyFingerprint: string | null;
+  keyPinnedAt: string | null;
+  refusedKey: { fingerprint: string; at: string } | null;
+  agent: { version: string; executor: 'ssh' | 'local'; hostUser: string | null; hostAddress: string | null } | null;
+  host: HostFacts | null;
+}
+
+export interface MacsResponse {
+  runners: MacRunnerView[];
+  waiting: Array<{ id: number; appId: string | null; appName: string | null; number: number; queuedAt: string | null }>;
+  /** The image a Mac pulls. */
+  image: string;
+}
 
 export interface GithubCheck {
   checkedAt: string;
@@ -82,17 +161,22 @@ export interface AppView {
   } | null;
   signing: { mode: 'console' | 'repository'; fileName: string | null; keyAlias: string | null; certificate: CertInfo | null; updatedAt: string | null };
   play: { source: 'app' | 'default'; clientEmail: string | null; projectId: string | null; updatedAt: string | null };
-  /** Where Build and Release run by default; a run can ask for the other. */
-  runner: { kind: RunnerKind; github: GithubSetup | null };
+  /** Where Android's Build and Release run by default; a run can ask for the other. iOS runs on a Mac. */
+  runner: { kind: Exclude<RunnerKind, 'mac'>; github: GithubSetup | null };
+  /** The app's iOS side, once set up. */
+  ios: IosSetup | null;
+  /** What stops an iOS build and an iOS release now (sentences with the way out); null without iOS. */
+  iosProblems: { build: string[]; release: string[] } | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface RunParams {
+  platform: Platform;
   mode: 'build' | 'release';
   /** Omitted: the app's own default. */
   runner?: RunnerKind;
-  track: PlayTrack;
+  track: PlayTrack | IosTrack;
   releaseNotes: string;
   releaseStatus: 'completed' | 'draft';
   versionName: string;
@@ -134,10 +218,13 @@ export interface CommitInfo {
 
 export interface BuilderRun {
   id: number;
-  app: { id: string; name: string; packageName: string; signing: 'console' | 'repository'; projectPath: string } | null;
+  app: { id: string; name: string; packageName: string; signing: 'console' | 'repository'; projectPath: string; bundleId?: string | null } | null;
   number: number;
   runner: RunnerKind;
-  remote: { repo: string; url: string | null; dispatchedAt: string | null } | null;
+  remote:
+    | { kind: 'github'; repo: string; url: string | null; dispatchedAt: string | null }
+    | { kind: 'mac'; state: 'waiting' | 'offered' | 'running' | 'done'; runnerId: string | null; runnerName: string | null; queuedAt: string | null; acceptedAt: string | null; lastHeardAt: string | null }
+    | null;
   status: Status;
   conclusion: Conclusion;
   createdAt: string;
@@ -177,6 +264,9 @@ export interface BuilderHealth {
   queued: number;
   current: { id: number; appId: string | null; appName: string | null; number: number; job: string | null } | null;
   onGithub: Array<{ id: number; appId: string | null; appName: string | null; number: number; job: string | null }>;
+  /** iOS runs being planned, waiting for a Mac, or running on one. */
+  onMac?: Array<{ id: number; appId: string | null; appName: string | null; number: number; job: string | null; runner: string | null; waiting: boolean }>;
+  macs?: { registered: number; online: number; ready: number; busy: number; waiting: number };
   defaultPlayKey: string | null;
   toolchain: { flutter: string | null; java: string | null };
 }

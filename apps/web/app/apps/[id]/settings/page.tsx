@@ -8,6 +8,7 @@ import { api, ApiError } from '@/lib/api';
 import { ago } from '@/lib/format';
 import type { AccessCheck, AppView, KeyRecord } from '@/lib/types';
 import { usePoll } from '@/lib/usePoll';
+import { IosPanel } from '@/components/IosPanel';
 import { PlayPanel, SigningPanel } from '@/components/KeysPanels';
 import { RunnerPanel } from '@/components/RunnerPanel';
 import { Sheet } from '@/components/Sheet';
@@ -313,6 +314,7 @@ export default function AppSettingsPage() {
             <RunnerPanel app={app} onChange={setApp} />
             <SigningPanel app={app} onChange={setApp} />
             <PlayPanel app={app} onChange={setApp} />
+            <IosPanel key={`ios-${app.id}-${app.ios?.bundleId ?? 'none'}`} app={app} onChange={setApp} />
             <DetailsPanel app={app} onChange={setApp} onDelete={() => setDeleting(true)} />
           </div>
         )}

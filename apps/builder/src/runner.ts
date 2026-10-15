@@ -4,10 +4,11 @@ import { join } from 'path';
 import type { BuilderConfig } from './config';
 import { zipCommit } from './extract';
 import { JobLog } from './log';
-import type { JobDef, RunPaths, Services, ShOptions, StepContext } from './pipeline';
+import { loadFastlaneFiles, macAssignment } from './mac-jobs';
+import { readPlan, sourceArchive, type JobDef, type RunPaths, type Services, type ShOptions, type StepContext } from './pipeline';
 import { runCommand, StepCancelled } from './process';
 import type { RunStore } from './store';
-import type { CommitInfo, Conclusion, JobRecord, RunApp, RunnerKind, RunParams, RunRecord, RunSource } from './types';
+import type { CommitInfo, Conclusion, JobRecord, MacRunnerRecord, RunApp, RunnerKind, RunParams, RunRecord, RunSource } from './types';
 
 const now = () => new Date().toISOString();
 
@@ -44,7 +45,7 @@ export interface NewRun {
   params: RunParams;
   startedBy: string;
   rerunOf?: number | null;
-  /** Where it runs: this server (default), or GitHub Actions in the app's repository. */
+  /** Where it runs: this server (default), or GitHub Actions in the app's repository. iOS runs always run on a Mac. */
   runner?: RunnerKind;
   github?: { repo: string; workflow: string } | null;
 }
@@ -63,7 +64,9 @@ interface Live {
  * - cleanup steps ("Complete job") run no matter what.
  *
  * Runs on this server go one at a time through one queue. Runs on GitHub Actions do not wait
- * for it: each is planned here at once, started on GitHub, and followed until it ends.
+ * for it: each is planned here at once, started on GitHub, and followed until it ends. iOS runs
+ * do not wait for it either: each is planned here at once, handed to the Mac runners (macs.ts)
+ * and followed until its Mac reports the end.
  */
 export class Runner {
   private queue: number[] = [];
@@ -96,7 +99,21 @@ export class Runner {
 
   /** Runs on GitHub Actions the console is planning or following now. */
   get onGithub(): Array<{ id: number; appId: string | null; appName: string | null; number: number; job: string | null }> {
-    return [...this.remote.values()].filter((l) => l.run).map((l) => Runner.describe(l.run!));
+    return [...this.remote.values()].filter((l) => l.run?.remote?.kind === 'github').map((l) => Runner.describe(l.run!));
+  }
+
+  /** iOS runs the console is planning, or that wait for or run on a Mac, now. */
+  get onMac(): Array<{ id: number; appId: string | null; appName: string | null; number: number; job: string | null; runner: string | null; waiting: boolean }> {
+    return [...this.remote.values()]
+      .filter((l) => l.run?.remote?.kind === 'mac')
+      .map((l) => {
+        const remote = l.run!.remote!;
+        return {
+          ...Runner.describe(l.run!),
+          runner: remote.kind === 'mac' ? remote.runnerName : null,
+          waiting: remote.kind === 'mac' && (remote.state === 'waiting' || remote.state === 'offered'),
+        };
+      });
   }
 
   private static describe(run: RunRecord) {
@@ -149,7 +166,8 @@ export class Runner {
             sha: await zipCommit(join(this.uploadsDir, input.source.upload)),
           };
     if (source.kind === 'git' && source.requestedSha) source.sha = source.requestedSha;
-    const onGithub = input.runner === 'github' && input.github && source.kind === 'git';
+    const onMac = input.params.platform === 'ios';
+    const onGithub = !onMac && input.runner === 'github' && input.github && source.kind === 'git';
     const run: RunRecord = {
       id,
       app: input.app,
@@ -165,10 +183,12 @@ export class Runner {
       plan: null,
       jobs: [],
       error: null,
-      runner: onGithub ? 'github' : 'server',
-      remote: onGithub
-        ? { kind: 'github', repo: input.github!.repo, workflow: input.github!.workflow, requestId: randomBytes(3).toString('hex'), runId: null, url: null, dispatchedAt: null, fetched: [] }
-        : null,
+      runner: onMac ? 'mac' : onGithub ? 'github' : 'server',
+      remote: onMac
+        ? { kind: 'mac', state: 'waiting', runnerId: null, runnerName: null, queuedAt: null, offeredAt: null, acceptedAt: null, lastHeardAt: null, cancelRequested: false }
+        : onGithub
+          ? { kind: 'github', repo: input.github!.repo, workflow: input.github!.workflow, requestId: randomBytes(3).toString('hex'), runId: null, url: null, dispatchedAt: null, fetched: [] }
+          : null,
     };
     // Every job and step exists from the start, queued, as GitHub lists a workflow's jobs.
     run.jobs = this.pipelineFor(run).map((job, i) => ({
@@ -181,7 +201,7 @@ export class Runner {
       steps: job.steps.map((s, n) => ({ name: s.name, number: n + 1, status: 'queued', conclusion: null, started_at: null, completed_at: null })),
     }));
     await this.store.save(run);
-    if (run.runner === 'github') void this.startRemote(id, false);
+    if (run.runner === 'github' || run.runner === 'mac') void this.startRemote(id, false);
     else this.enqueue(id);
     return run;
   }
@@ -225,12 +245,25 @@ export class Runner {
 
   /**
    * After a restart: a run caught mid-flight on this server cannot resume, and a queued one
-   * waits again. A run on GitHub carried on without the console: following it resumes.
+   * waits again. A run on GitHub carried on without the console: following it resumes. An iOS
+   * run that its Plan job had already handed over waits for (or keeps reporting from) its Mac.
    */
   async recover(): Promise<void> {
     for (const run of (await this.store.list()).reverse()) {
-      if (run.runner === 'github' && (run.status === 'in_progress' || run.status === 'queued')) {
-        if (run.remote?.runId || run.remote?.dispatchedAt) {
+      const remote = run.remote;
+      if (remote?.kind === 'github' && (run.status === 'in_progress' || run.status === 'queued')) {
+        if (remote.runId || remote.dispatchedAt) {
+          void this.startRemote(run.id, true);
+          continue;
+        }
+        if (run.status === 'queued') {
+          void this.startRemote(run.id, false);
+          continue;
+        }
+      }
+      if (remote?.kind === 'mac' && (run.status === 'in_progress' || run.status === 'queued')) {
+        const planned = run.jobs.find((j) => j.name === 'Plan')?.conclusion === 'success';
+        if (planned) {
           void this.startRemote(run.id, true);
           continue;
         }
@@ -403,31 +436,33 @@ export class Runner {
     return job.conclusion;
   }
 
-  // ─── Runs on GitHub Actions ──────────────────────────────────────────────────────────
+  // ─── Runs on GitHub Actions and on Mac runners ───────────────────────────────────────
 
-  /** Plans and starts a run on GitHub (or, after a restart, picks up following it). */
+  /** Plans and starts a run on GitHub or a Mac (or, after a restart, picks up following it). */
   private async startRemote(id: number, resume: boolean): Promise<void> {
     if (this.remote.has(id)) return;
     const live: Live = { id, abort: new AbortController(), run: null };
     this.remote.set(id, live);
+    let where = 'GitHub';
     try {
       const run = await this.store.get(id);
       if (!run || run.status === 'completed' || !run.remote) return;
       live.run = run;
-      await this.executeRemote(run, live.abort.signal, resume);
+      if (run.remote.kind === 'mac') {
+        where = 'Mac';
+        await this.executeMac(run, live.abort.signal, resume);
+      } else await this.executeRemote(run, live.abort.signal, resume);
     } catch (e) {
-      console.error(`run ${id} (GitHub): ${(e as Error).stack ?? e}`);
+      console.error(`run ${id} (${where}): ${(e as Error).stack ?? e}`);
     } finally {
       await this.housekeeping(id).catch((e: unknown) => console.error(`housekeeping: ${(e as Error).message}`));
       this.remote.delete(id);
     }
   }
 
-  private async executeRemote(run: RunRecord, signal: AbortSignal, resume: boolean): Promise<void> {
-    const { paths, save } = await this.prepare(run);
-    const defs = this.pipelineFor(run);
-    const remote = run.remote!;
-    const finish = async (conclusion: Conclusion, error?: string) => {
+  /** Closes a remote run: whatever never ran is cancelled or skipped, and the record says how it ended. */
+  private closer(run: RunRecord, save: () => Promise<void>) {
+    return async (conclusion: Conclusion, error?: string) => {
       for (const job of run.jobs) if (job.status !== 'completed') this.finishUnrun(job, conclusion === 'cancelled' ? 'cancelled' : 'skipped');
       run.status = 'completed';
       run.conclusion = conclusion;
@@ -435,17 +470,29 @@ export class Runner {
       run.completedAt = now();
       await save();
     };
+  }
+
+  /** Runs the jobs this server owns in a remote run (its Plan); returns how they ended. */
+  private async planHere(run: RunRecord, paths: RunPaths, signal: AbortSignal, save: () => Promise<void>): Promise<Conclusion[]> {
+    run.status = 'in_progress';
+    run.startedAt = now();
+    await save();
+    const results = new Map<string, Conclusion>();
+    for (const [i, def] of this.pipelineFor(run).entries()) {
+      if (def.remote) continue;
+      results.set(def.key, await this.runJob(run, def, run.jobs[i], paths, signal, save, results));
+    }
+    return [...results.values()];
+  }
+
+  private async executeRemote(run: RunRecord, signal: AbortSignal, resume: boolean): Promise<void> {
+    const { paths, save } = await this.prepare(run);
+    const remote = run.remote;
+    if (remote?.kind !== 'github') return;
+    const finish = this.closer(run, save);
 
     if (!resume) {
-      run.status = 'in_progress';
-      run.startedAt = now();
-      await save();
-      const results = new Map<string, Conclusion>();
-      for (const [i, def] of defs.entries()) {
-        if (def.remote) continue;
-        results.set(def.key, await this.runJob(run, def, run.jobs[i], paths, signal, save, results));
-      }
-      const planned = [...results.values()];
+      const planned = await this.planHere(run, paths, signal, save);
       if (planned.some((c) => c !== 'success') || !remote.runId) {
         // Started on GitHub after all (a cancel in its last moment): stop it there too.
         if (remote.runId && signal.aborted) {
@@ -479,6 +526,54 @@ export class Runner {
       await log.close();
     }
     await finish(run.conclusion ?? 'failure');
+  }
+
+  /**
+   * An iOS run: its Plan job here (checkout, checks, build number, the source packed), then the
+   * Mac runners take it and the pool follows it until its Mac reports the end, goes quiet, or
+   * the run is cancelled. After a restart the planning is not repeated: the run waits for a Mac
+   * again, or keeps listening to the Mac that has it.
+   */
+  private async executeMac(run: RunRecord, signal: AbortSignal, resume: boolean): Promise<void> {
+    const { paths, save } = await this.prepare(run);
+    if (run.remote?.kind !== 'mac') return;
+    const finish = this.closer(run, save);
+    if (!resume) {
+      const planned = await this.planHere(run, paths, signal, save);
+      if (planned.some((c) => c !== 'success')) return finish(planned.includes('cancelled') ? 'cancelled' : 'failure');
+    }
+    // Who took the run and who went quiet goes on in the Plan job's log, under its last step.
+    const log = new JobLog(join(paths.logs, `${run.jobs.find((j) => j.name === 'Plan')?.id ?? 1}.log`));
+    try {
+      await this.services.macs.follow(
+        {
+          run,
+          save,
+          logsDir: paths.logs,
+          artifactsDir: paths.artifacts,
+          sourceFile: sourceArchive(paths),
+          note: (text) => log.line(text),
+          assignment: (mac) => this.assignmentFor(run, paths, mac),
+        },
+        signal,
+      );
+    } finally {
+      await log.close();
+    }
+    await finish(run.conclusion ?? 'failure');
+  }
+
+  /** The work order for the Mac that takes an iOS run, its secrets sealed to that Mac's key. */
+  private async assignmentFor(run: RunRecord, paths: RunPaths, mac: MacRunnerRecord) {
+    if (!mac.publicKey) throw new Error(`${mac.name} has no pinned key yet.`);
+    if (!run.app) throw new Error('The run belongs to no app.');
+    const app = await this.services.apps.require(run.app.id);
+    const plan = await readPlan(paths);
+    const signing = await this.services.apps.iosSigning(app);
+    if (!signing) throw new Error(`${app.name}'s distribution certificate is no longer stored; upload it again in its settings → iOS.`);
+    const appStore = plan.mode === 'release' ? await this.services.apps.appStoreKey(app) : null;
+    const source = JSON.parse(await fs.readFile(join(paths.run, 'source.json'), 'utf8')) as { sizeBytes: number; sha256: string };
+    return macAssignment({ run, plan, app, publicKey: mac.publicKey, signing, appStore, source, files: await loadFastlaneFiles(this.cfg.pipelineDir) });
   }
 
   // ─── internals ───────────────────────────────────────────────────────────────────────
@@ -536,6 +631,8 @@ export class Runner {
     await fs.rm(paths.play, { recursive: true, force: true });
     await fs.rm(paths.signing, { recursive: true, force: true });
     await fs.rm(join(paths.run, '.throwaway'), { force: true });
+    await fs.rm(sourceArchive(paths), { force: true });
+    await fs.rm(join(paths.run, 'source.json'), { force: true });
     const runs = await this.store.list();
     const byApp = new Map<string, RunRecord[]>();
     for (const r of runs) {

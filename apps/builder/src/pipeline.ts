@@ -6,16 +6,20 @@ import { join } from 'path';
 import { promisify } from 'util';
 import type { GithubActions } from './actions';
 import { AppError, type AppStore } from './apps';
+import { AppStoreError, type AppStoreClient } from './appstore';
 import type { BuilderConfig } from './config';
 import { chownTree, ExtractError, extractZip } from './extract';
 import { GitError, parseRepoUrl, type Git } from './git';
+import { iosProblems, parseBundleIds, profileFor } from './ios';
 import type { JobLog } from './log';
+import { macJobs } from './mac-jobs';
+import type { MacPool } from './macs';
 import { chooseVersionCode, PlanError, resolvePlan } from './plan';
 import type { PlayClient } from './play';
-import { StepCancelled, StepFailed } from './process';
+import { execArgv, StepCancelled, StepFailed } from './process';
 import { describeDir, describeProject, locateProject, pickProjectPath, type ProjectInfo } from './project';
 import { bundleSigner, resignBundle, sameFingerprint, SigningError, throwawayKeystore } from './signing';
-import type { Plan, RunRecord } from './types';
+import type { Plan, Platform, RunRecord } from './types';
 import { PROJECT_CHECKS_SCRIPT, REMOTE_JOBS, TESTS_SCRIPT, type WorkflowPlan } from './workflow';
 
 const exec = promisify(execFile);
@@ -25,7 +29,8 @@ const exec = promisify(execFile);
  * uploaded ZIP: Plan (checkout, project checks, version code) → Tests → Signed AAB → Google
  * Play. The job and step names are the console's contract: apps/api maps them onto six stages.
  * A run on GitHub Actions plans here the same way, then its jobs run on GitHub under the same
- * names (githubPipeline below, and the workflow in workflow.ts).
+ * names (githubPipeline below, and the workflow in workflow.ts). An iOS run plans here too,
+ * then a Mac runner runs Tests → Signed IPA → App Store Connect (iosPipeline, and mac-jobs.ts).
  *
  * Every build step runs as the unprivileged `builder` user: the app's own code (Gradle
  * scripts, tests) executes there and can read no key. git with the SSH key, signing with the
@@ -58,8 +63,10 @@ export interface Services {
   git: Git;
   play: PlayClient;
   github: GithubActions;
-  /** Version codes this console's other runs of the app planned. */
-  usedVersionCodes(appId: string, exceptRunId: number): Promise<number[]>;
+  appStore: AppStoreClient;
+  macs: MacPool;
+  /** Version codes (Android) or build numbers (iOS) this console's other runs of the app planned. */
+  usedVersionCodes(appId: string, exceptRunId: number, platform: Platform): Promise<number[]>;
   /** Runs `fn` alone among the app's runs (choosing a version code must not race). */
   lockApp<T>(appId: string, fn: () => Promise<T>): Promise<T>;
 }
@@ -107,12 +114,16 @@ export const ARTIFACTS = {
 const setUp = (jobName: string): StepDef => ({
   name: 'Set up job',
   run: async (ctx) => {
+    const remote = ctx.run.remote;
     ctx.log.line(
-      ctx.run.runner === 'github' && ctx.run.remote
-        ? `Runner: ${hostname()} (the console's builder) plans this run; GitHub Actions (${ctx.run.remote.repo}) runs its jobs`
-        : `Runner: ${hostname()} (the console's builder)`,
+      remote?.kind === 'github'
+        ? `Runner: ${hostname()} (the console's builder) plans this run; GitHub Actions (${remote.repo}) runs its jobs`
+        : remote?.kind === 'mac'
+          ? `Runner: ${hostname()} (the console's builder) plans this run; a Mac runner builds and releases it`
+          : `Runner: ${hostname()} (the console's builder)`,
     );
-    ctx.log.line(`App: ${ctx.run.app?.name ?? 'unknown'} (${ctx.run.app?.packageName ?? '?'}) · run #${ctx.run.number}`);
+    const ios = ctx.run.params.platform === 'ios';
+    ctx.log.line(`App: ${ctx.run.app?.name ?? 'unknown'} (${(ios ? ctx.run.app?.bundleId : ctx.run.app?.packageName) ?? '?'}${ios ? ', iOS' : ''}) · run #${ctx.run.number}`);
     ctx.log.line(`Job: ${jobName}`);
     const s = ctx.run.source;
     ctx.log.line(s.kind === 'git' ? `Source: ${s.url} · ${s.requestedSha ?? s.branch}` : `Source: ${s.fileName} (uploaded ZIP)`);
@@ -293,7 +304,7 @@ async function plan(ctx: StepContext, info: ProjectInfo): Promise<void> {
   const source = ctx.run.source;
   // Two runs of one app planning at once (GitHub runs do not queue) must not take one code.
   const result = await ctx.services.lockApp(runApp.id, async () => {
-    const used = await ctx.services.usedVersionCodes(runApp.id, ctx.run.id);
+    const used = await ctx.services.usedVersionCodes(runApp.id, ctx.run.id, 'android');
     const versionCode = chooseVersionCode({
       pinned: ctx.run.params.versionCode,
       playHighest,
@@ -406,6 +417,7 @@ async function verifySignature(ctx: StepContext): Promise<void> {
 // ─── The pipeline ──────────────────────────────────────────────────────────────────────
 
 export function releasePipeline(run: RunRecord): JobDef[] {
+  if (run.params.platform === 'ios') return iosPipeline(run);
   if (run.runner === 'github') return githubPipeline(run);
   const consoleSigning = run.app?.signing === 'console';
   const jobs: JobDef[] = [
@@ -596,7 +608,7 @@ async function planFromMirror(ctx: StepContext): Promise<void> {
 }
 
 async function copySecrets(ctx: StepContext): Promise<void> {
-  ctx.log.step(`check the Actions secrets of ${ctx.run.remote?.repo ?? 'the repository'}`);
+  ctx.log.step(`check the Actions secrets of ${ctx.run.remote?.kind === 'github' ? ctx.run.remote.repo : 'the repository'}`);
   const app = await ctx.services.apps.require(ctx.run.app?.id ?? '');
   await ctx.services.github.ensureSecrets(app, ctx.log);
 }
@@ -604,7 +616,7 @@ async function copySecrets(ctx: StepContext): Promise<void> {
 async function startOnGithub(ctx: StepContext): Promise<void> {
   const remote = ctx.run.remote;
   const source = ctx.run.source;
-  if (!remote || !ctx.run.app || source.kind !== 'git' || !source.sha) throw new StepFailed('This run has nothing to start on GitHub.', null);
+  if (remote?.kind !== 'github' || !ctx.run.app || source.kind !== 'git' || !source.sha) throw new StepFailed('This run has nothing to start on GitHub.', null);
   const app = await ctx.services.apps.require(ctx.run.app.id);
   const p = await readPlan(ctx.paths);
   const what = p.mode === 'release' ? `${p.rehearsal ? 'Rehearsal' : 'Release'} → ${p.track}` : 'Build and test';
@@ -684,4 +696,157 @@ export function githubPipeline(run: RunRecord): JobDef[] {
     }),
   );
   return [planJob, ...remote];
+}
+
+// ─── iOS, on a Mac runner ──────────────────────────────────────────────────────────────
+
+/** The packed source a Mac downloads, next to the run's record. */
+export const sourceArchive = (paths: RunPaths) => join(paths.run, 'source.tar.gz');
+
+async function planIos(ctx: StepContext): Promise<void> {
+  ctx.log.step('read the project and choose the build number');
+  const runApp = ctx.run.app;
+  if (!runApp) throw new StepFailed('This run belongs to no app.', null);
+  const app = await ctx.services.apps.require(runApp.id);
+  const ios = app.ios;
+  if (!ios) throw new StepFailed(`${app.name} has no iOS setup: add its bundle ID, certificate and profile in its settings → iOS.`, null);
+  const root = ctx.run.source.root ?? '';
+  const info = await describeDir(ctx.paths.src, root);
+  if (!info.flutter) throw new StepFailed(`${info.path || 'The'} pubspec.yaml does not depend on Flutter: the console builds Flutter apps.`, null);
+  const pbxproj = await fs.readFile(join(ctx.paths.src, root, 'ios/Runner.xcodeproj/project.pbxproj'), 'utf8').catch(() => null);
+  if (pbxproj === null) {
+    throw new StepFailed(`${root ? `${root}/` : 'The project '}has no ios/Runner.xcodeproj: add iOS to the Flutter project (flutter create --platforms ios .) and commit it.`, null);
+  }
+  const ids = parseBundleIds(pbxproj);
+  if (!ids.includes(ios.bundleId)) {
+    if (ids.some((id) => id.includes('$('))) {
+      ctx.log.warning(`The project sets its bundle ID through a build variable; the Mac checks the built IPA is ${ios.bundleId}.`);
+    } else {
+      const built = ids.filter((id) => !/Tests$/.test(id));
+      throw new StepFailed(
+        `This project builds ${built.join(', ') || 'no bundle ID'} (ios/Runner.xcodeproj), but ${app.name} releases ${ios.bundleId} on iOS. ` +
+          'Build the right repository, or correct the bundle ID in the app’s settings → iOS.',
+        null,
+      );
+    }
+  }
+  const release = ctx.run.params.mode === 'release';
+  const problems = iosProblems(ios, app.name, release);
+  if (problems.length) throw new StepFailed(problems.join(' '), null);
+  // Extensions are signed too: each needs an App Store profile of its own (or a wildcard).
+  for (const id of ids.filter((x) => x !== ios.bundleId && x.startsWith(`${ios.bundleId}.`) && !/Tests$/.test(x))) {
+    if (!profileFor(ios, id)) {
+      throw new StepFailed(`The project also signs ${id} (an extension of the app), and no App Store profile covers it: upload its profile in the app’s settings → iOS.`, null);
+    }
+  }
+
+  let storeHighest: number | null = null;
+  let storeError: string | null = null;
+  const key = await ctx.services.apps.appStoreKey(app);
+  if (key) {
+    try {
+      const snap = await ctx.services.appStore.snapshot(key, ios.bundleId, true);
+      storeHighest = snap.highestBuild;
+      await ctx.services.apps.noteAppStore(app.id, { appId: snap.appId, appName: snap.appName, message: null });
+      ctx.log.line(`App Store Connect (key ${key.keyId}): ${snap.appName}, highest build ${storeHighest ?? 'none yet'}.`);
+    } catch (e) {
+      storeError = (e as Error).message;
+      // Only App Store Connect's own refusal is kept on the app; a network hiccup is not a setup problem.
+      if (e instanceof AppStoreError && !e.transient) await ctx.services.apps.noteAppStore(app.id, { appId: null, appName: null, message: e.message });
+    }
+  } else {
+    storeError = 'there is no App Store Connect API key for this app (add one in its settings → iOS)';
+  }
+  if (storeError) {
+    if (release) throw new StepFailed(`App Store Connect could not be read for ${ios.bundleId}: ${storeError}`, null);
+    ctx.log.warning(`App Store Connect was not read (${storeError}); the build number comes from this console's runs and pubspec.yaml.`);
+  }
+
+  const source = ctx.run.source;
+  const result = await ctx.services.lockApp(runApp.id, async () => {
+    const used = await ctx.services.usedVersionCodes(runApp.id, ctx.run.id, 'ios');
+    const versionCode = chooseVersionCode({
+      pinned: ctx.run.params.versionCode,
+      playHighest: storeHighest,
+      usedHighest: used.length ? Math.max(...used) : 0,
+      pubspecBuild: info.buildNumber,
+      store: 'App Store Connect',
+      unit: 'build number',
+    });
+    const planned = resolvePlan(ctx.run.params, {
+      pubspecVersion: info.versionName,
+      versionCode,
+      trigger: source.kind === 'git' ? 'git' : 'upload',
+      sha: source.sha,
+      ref: source.kind === 'git' ? source.branch : source.fileName,
+      packageName: ios.bundleId,
+    });
+    ctx.run.plan = planned;
+    await ctx.save();
+    return planned;
+  });
+  await fs.mkdir(join(ctx.paths.artifacts, ARTIFACTS.plan), { recursive: true });
+  await fs.writeFile(join(ctx.paths.artifacts, ARTIFACTS.plan, 'plan.json'), JSON.stringify(result, null, 2));
+  const where = result.track === 'app_store' ? 'App Store review' : 'TestFlight';
+  ctx.log.line(`Mode: ${result.mode}${result.publish ? ` → ${where}${result.track === 'app_store' ? ` (${result.releaseStatus === 'draft' ? 'released by hand once approved' : 'released once approved'})` : ''}` : ''}${result.rehearsal ? ', rehearsal: App Store Connect validates the IPA, nothing is uploaded' : ''}`);
+  ctx.log.line(`Version: ${result.versionName} (build ${result.versionCode}) — the build number is ${result.versionCodeFrom}.`);
+  const profile = profileFor(ios, ios.bundleId);
+  ctx.log.line(`Signing: ${ios.certificate?.name ?? '?'} with ${profile?.name ?? '?'} (expires ${profile?.expiresAt.slice(0, 10) ?? '?'}).`);
+}
+
+async function packSource(ctx: StepContext): Promise<void> {
+  const out = sourceArchive(ctx.paths);
+  ctx.log.step('tar -czf source.tar.gz (the checkout without .git, for the Mac)');
+  const res = await execArgv('tar', ['-czf', out, '--exclude=.git', '--owner=0', '--group=0', '--numeric-owner', '-C', ctx.paths.src, '.'], {
+    signal: ctx.signal,
+    timeoutMs: 15 * 60_000,
+  });
+  if (res.code !== 0) throw new StepFailed(`Could not pack the source for the Mac: ${res.stderr.trim().split('\n').pop() ?? ''}`, res.code);
+  await fs.chmod(out, 0o600);
+  const size = (await fs.stat(out)).size;
+  const sum = await sha256(out);
+  await fs.writeFile(join(ctx.paths.run, 'source.json'), JSON.stringify({ sizeBytes: size, sha256: sum }));
+  ctx.log.line(`Packed ${(size / 1024 / 1024).toFixed(1)} MB (sha256 ${sum.slice(0, 16)}…) for the Mac.`);
+}
+
+/** The steps a Mac reports for each of its jobs, listed queued until it does. */
+export const MAC_STEPS = (run: RunRecord) => macJobs(run.params);
+
+/**
+ * An iOS run: the console plans it here (the commit or ZIP, the bundle ID and signing checks,
+ * the build number above App Store Connect's), packs the source, then a Mac runner takes it
+ * and its jobs are mirrored into the record as the Mac reports them.
+ */
+export function iosPipeline(run: RunRecord): JobDef[] {
+  const guard = (fn: (ctx: StepContext) => Promise<void>) => async (ctx: StepContext) => {
+    try {
+      await fn(ctx);
+    } catch (e) {
+      throw asStep(e);
+    }
+  };
+  const planJob: JobDef = {
+    key: 'plan',
+    name: 'Plan',
+    needs: [],
+    timeoutMin: 30,
+    steps: [
+      setUp('Plan'),
+      { name: 'Checkout code', run: guard((ctx) => (ctx.run.source.kind === 'git' ? checkoutGit(ctx) : checkoutZip(ctx))) },
+      { name: 'Resolve plan', run: guard(planIos) },
+      { name: 'Pack source for the Mac', run: guard(packSource) },
+      complete(false),
+    ],
+  };
+  const mac = MAC_STEPS(run).map(
+    (job): JobDef => ({
+      key: job.key,
+      name: job.name,
+      needs: job.key === 'tests' ? ['plan'] : job.needs,
+      timeoutMin: job.timeoutMin,
+      remote: true,
+      steps: job.steps.map((s) => ({ name: s.name, run: async () => undefined })),
+    }),
+  );
+  return [planJob, ...mac];
 }

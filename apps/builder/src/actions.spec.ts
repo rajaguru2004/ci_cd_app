@@ -9,7 +9,7 @@ import { JobLog } from './log';
 import { KeyStore } from './keys';
 import { FakeGithub } from './testing-github';
 import { makeKeystore, tempConfig, useJdk } from './testing';
-import type { AppRecord, JobRecord, RunRecord } from './types';
+import type { AppRecord, GithubRemote, JobRecord, RunRecord } from './types';
 import { Vault } from './vault';
 import { COPIED_ARTIFACTS, REMOTE_JOBS, SECRETS, WORKFLOW_PATH } from './workflow';
 
@@ -251,7 +251,7 @@ describe('GithubActions: dispatch and follow', () => {
       updatedAt: new Date().toISOString(),
       completedAt: null,
       source: { kind: 'git', url: app.repo!.url, branch: 'main', requestedSha: plan.sha, sha: plan.sha, root: '', commit: null, startedBy: 'test', rerunOf: null },
-      params: { mode, track: 'internal', releaseNotes: 'Notes.', releaseStatus: 'completed', versionName: '1.0.1', versionCode: null, rehearsal: Boolean(extra.rehearsal) },
+      params: { platform: 'android', mode, track: 'internal', releaseNotes: 'Notes.', releaseStatus: 'completed', versionName: '1.0.1', versionCode: null, rehearsal: Boolean(extra.rehearsal) },
       plan: null,
       jobs: names.map((name, i): JobRecord => ({ id: i + 1, name, status: 'queued', conclusion: null, started_at: null, completed_at: null, steps: [] })),
       error: null,
@@ -339,7 +339,7 @@ describe('GithubActions: dispatch and follow', () => {
     await done;
 
     expect(run.conclusion).toBe('cancelled');
-    expect(h.fake.runs.get(run.remote!.runId!)!.cancelRequested).toBe(true);
+    expect(h.fake.runs.get((run.remote as GithubRemote).runId!)!.cancelRequested).toBe(true);
   }, 30000);
 
   it('cancel() treats an already-finished run as nothing to do', async () => {
@@ -348,9 +348,9 @@ describe('GithubActions: dispatch and follow', () => {
     await h.github.setDefaultToken(h.fake.token);
     h.fake.addRepo('acme/app', { files: { [WORKFLOW_PATH]: (await h.github.workflow()).yaml } });
     const run = await dispatched(h, app, 'build');
-    const fakeRun = h.fake.runs.get(run.remote!.runId!)!;
+    const fakeRun = h.fake.runs.get((run.remote as GithubRemote).runId!)!;
     fakeRun.status = 'completed';
     fakeRun.conclusion = 'success';
-    await expect(h.github.cancel(app, run.remote!.runId!)).resolves.toBeUndefined();
+    await expect(h.github.cancel(app, (run.remote as GithubRemote).runId!)).resolves.toBeUndefined();
   });
 });

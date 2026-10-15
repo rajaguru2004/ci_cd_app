@@ -1,12 +1,14 @@
 import { existsSync, promises as fs, readFileSync } from 'fs';
 import { join } from 'path';
+import { AppStoreError, parseAppStoreKey, type AppStoreKey } from './appstore';
 import { checkBranch, Git, GitError, parseRepoUrl } from './git';
 import { githubRepoOf } from './github';
+import { IosError, isBundleId, parseProfile, readP12 } from './ios';
 import type { KeyStore } from './keys';
 import { parseServiceAccount, PlayError, type ServiceAccountKey } from './play';
 import { isPackageName } from './project';
 import { checkUploadKey, SigningError, type UploadKey } from './signing';
-import type { AppRecord, GithubSetup, RepoConfig, RunApp, RunnerKind } from './types';
+import type { AppRecord, AppStoreKeyInfo, GithubSetup, IosSetup, Platform, RepoConfig, RunApp, RunnerKind } from './types';
 import type { Vault } from './vault';
 import { WORKFLOW_FILE } from './workflow';
 
@@ -91,6 +93,8 @@ export class AppStore {
       // repository is already on github.com still gets the option without anyone re-saving it.
       app.runner ??= { kind: 'server', github: null };
       app.runner.github ??= app.repo ? this.githubSetupFor(app.repo.url, null) : null;
+      // Apps added before iOS came are Android-only until someone sets their iOS side up.
+      app.ios ??= null;
       return app;
     } catch {
       return null;
@@ -120,6 +124,7 @@ export class AppStore {
       signing: { mode: 'repository', fileName: null, keyAlias: null, certificate: null, updatedAt: null },
       play: { source: 'default', clientEmail: this.defaultPlayEmail(), projectId: null, updatedAt: null },
       runner: { kind: 'server', github: null },
+      ios: null,
       createdAt: at,
       updatedAt: at,
     };
@@ -153,10 +158,10 @@ export class AppStore {
     return app;
   }
 
-  /** Where Build and Release run by default. */
+  /** Where Android's Build and Release run by default (iOS always runs on a Mac runner). */
   async setRunner(id: string, kind: unknown): Promise<AppRecord> {
     const app = await this.require(id);
-    if (kind !== 'server' && kind !== 'github') throw new AppError('Builds run on this server (server) or on GitHub Actions (github).');
+    if (kind !== 'server' && kind !== 'github') throw new AppError('Android builds run on this server (server) or on GitHub Actions (github).');
     if (kind === 'github' && !(app.repo && githubRepoOf(app.repo.url))) {
       throw new AppError(`${app.name}'s repository is not on github.com, so its builds cannot run on GitHub Actions; they run on this server.`, 409);
     }
@@ -176,7 +181,7 @@ export class AppStore {
   }
 
   /** The runner settings for the app's repository: GitHub setup kept, reset or dropped as it changed. */
-  private runnerFor(app: AppRecord, kind: RunnerKind): AppRecord['runner'] {
+  private runnerFor(app: AppRecord, kind: Exclude<RunnerKind, 'mac'>): AppRecord['runner'] {
     const github = app.repo ? this.githubSetupFor(app.repo.url, app.runner?.github ?? null) : null;
     return { kind: github ? kind : 'server', github };
   }
@@ -324,6 +329,187 @@ export class AppStore {
     return json ? parseServiceAccount(json).client_email : null;
   }
 
+  // ─── iOS ─────────────────────────────────────────────────────────────────────────────
+
+  /** Turns on the app's iOS side, or changes its bundle ID (the signing is kept; the plan checks it fits). */
+  async setIos(id: string, input: { bundleId?: unknown }): Promise<AppRecord> {
+    const app = await this.require(id);
+    const bundleId = str(input.bundleId);
+    if (!isBundleId(bundleId)) throw new AppError(`'${bundleId || '(empty)'}' is not a bundle ID (CFBundleIdentifier), e.g. com.company.app.`);
+    const clash = (await this.list()).find((a) => a.id !== id && a.ios?.bundleId === bundleId);
+    if (clash) throw new AppError(`${clash.name} already releases ${bundleId} on iOS.`, 409);
+    const at = new Date().toISOString();
+    const before = app.ios;
+    app.ios = before
+      ? {
+          ...before,
+          bundleId,
+          // Another app on App Store Connect: the key stays, the app it found does not.
+          appStore: before.appStore && before.bundleId !== bundleId ? { ...before.appStore, appId: null, appName: null, checkedAt: null, message: null } : before.appStore,
+          updatedAt: at,
+        }
+      : { bundleId, certificate: null, profiles: [], appStore: null, updatedAt: at };
+    app.updatedAt = at;
+    await this.save(app);
+    return app;
+  }
+
+  /** Back to Android only: the iOS certificate, profiles and App Store Connect key are deleted. */
+  async clearIos(id: string): Promise<AppRecord> {
+    const app = await this.require(id);
+    await this.vault.remove(`apps/${id}/ios`);
+    app.ios = null;
+    app.updatedAt = new Date().toISOString();
+    await this.save(app);
+    return app;
+  }
+
+  async setIosCertificate(id: string, input: { p12?: unknown; password?: unknown; fileName?: unknown }): Promise<AppRecord> {
+    const app = await this.require(id);
+    const ios = this.iosOf(app);
+    const b64 = typeof input.p12 === 'string' ? input.p12.replace(/^data:[^,]*,/, '') : '';
+    const p12 = Buffer.from(b64, 'base64');
+    const password = typeof input.password === 'string' ? input.password : '';
+    let cert;
+    try {
+      cert = await readP12(p12, password, str(input.fileName), this.scratchDir);
+    } catch (e) {
+      if (e instanceof IosError) throw new AppError(e.message, e.status);
+      throw e;
+    }
+    if (cert.kind === 'development') {
+      throw new AppError(`${cert.name} is a development certificate; App Store Connect builds are signed with an Apple Distribution certificate.`, 422);
+    }
+    const otherTeam = ios.profiles.find((p) => cert.teamId && p.teamId !== cert.teamId);
+    if (otherTeam) throw new AppError(`${cert.name} belongs to team ${cert.teamId}, but the profile ${otherTeam.name} is team ${otherTeam.teamId}: remove that profile first.`, 422);
+    await this.vault.put(`apps/${id}/ios/certificate.p12`, p12);
+    await this.vault.put(`apps/${id}/ios/certificate.json`, Buffer.from(JSON.stringify({ password })));
+    ios.certificate = cert;
+    ios.updatedAt = app.updatedAt = cert.uploadedAt;
+    await this.save(app);
+    return app;
+  }
+
+  async clearIosCertificate(id: string): Promise<AppRecord> {
+    const app = await this.require(id);
+    const ios = this.iosOf(app);
+    await this.vault.remove(`apps/${id}/ios/certificate.p12`);
+    await this.vault.remove(`apps/${id}/ios/certificate.json`);
+    ios.certificate = null;
+    ios.updatedAt = app.updatedAt = new Date().toISOString();
+    await this.save(app);
+    return app;
+  }
+
+  /** Adds a provisioning profile; a renewed one (same name and App ID) replaces the old one. */
+  async addIosProfile(id: string, input: { data?: unknown; fileName?: unknown }): Promise<AppRecord> {
+    const app = await this.require(id);
+    const ios = this.iosOf(app);
+    const data = Buffer.from(typeof input.data === 'string' ? input.data.replace(/^data:[^,]*,/, '') : '', 'base64');
+    if (!data.length) throw new AppError('Choose the .mobileprovision file.');
+    if (data.length > 512 * 1024) throw new AppError('That file is too large to be a provisioning profile.');
+    let profile;
+    try {
+      profile = parseProfile(data, str(input.fileName));
+    } catch (e) {
+      if (e instanceof IosError) throw new AppError(e.message, 422);
+      throw e;
+    }
+    if (profile.platforms.length && !profile.platforms.includes('iOS')) throw new AppError(`${profile.name} is a ${profile.platforms.join('/')} profile, not an iOS one.`, 422);
+    if (profile.type !== 'app-store') {
+      throw new AppError(`${profile.name} is ${profile.type === 'ad-hoc' ? 'an ad hoc' : `a ${profile.type}`} profile; App Store Connect takes builds signed with an App Store profile (developer.apple.com → Profiles → + → App Store Connect).`, 422);
+    }
+    if (Date.parse(profile.expiresAt) < Date.now()) throw new AppError(`${profile.name} expired on ${profile.expiresAt.slice(0, 10)}: download it again from developer.apple.com.`, 422);
+    if (ios.certificate?.teamId && profile.teamId !== ios.certificate.teamId) {
+      throw new AppError(`${profile.name} is for team ${profile.teamId}, but the certificate is team ${ios.certificate.teamId}.`, 422);
+    }
+    if (ios.certificate && !profile.certificates.includes(ios.certificate.sha1)) {
+      throw new AppError(`${profile.name} does not include ${ios.certificate.name}: edit the profile at developer.apple.com to include that certificate, then download it again.`, 422);
+    }
+    const { platforms: _platforms, ...stored } = profile;
+    const replaced = ios.profiles.filter((p) => p.uuid === profile.uuid || (p.name === profile.name && p.appId === profile.appId));
+    for (const old of replaced) await this.vault.remove(`apps/${id}/ios/profiles/${old.uuid.toLowerCase()}.mobileprovision`);
+    await this.vault.put(`apps/${id}/ios/profiles/${profile.uuid.toLowerCase()}.mobileprovision`, data);
+    ios.profiles = [...ios.profiles.filter((p) => !replaced.includes(p)), stored].sort((a, b) => a.appId.localeCompare(b.appId));
+    ios.updatedAt = app.updatedAt = stored.uploadedAt;
+    await this.save(app);
+    return app;
+  }
+
+  async removeIosProfile(id: string, uuid: string): Promise<AppRecord> {
+    const app = await this.require(id);
+    const ios = this.iosOf(app);
+    const profile = ios.profiles.find((p) => p.uuid.toLowerCase() === uuid.toLowerCase());
+    if (!profile) throw new AppError('That profile is not stored for this app.', 404);
+    await this.vault.remove(`apps/${id}/ios/profiles/${profile.uuid.toLowerCase()}.mobileprovision`);
+    ios.profiles = ios.profiles.filter((p) => p !== profile);
+    ios.updatedAt = app.updatedAt = new Date().toISOString();
+    await this.save(app);
+    return app;
+  }
+
+  /** Stores an App Store Connect API key (checked against App Store Connect by the caller). */
+  async setAppStoreKey(id: string, input: { keyId?: unknown; issuerId?: unknown; p8?: unknown }): Promise<{ app: AppRecord; key: AppStoreKey }> {
+    const app = await this.require(id);
+    const ios = this.iosOf(app);
+    let key: AppStoreKey;
+    try {
+      key = parseAppStoreKey(input);
+    } catch (e) {
+      if (e instanceof AppStoreError) throw new AppError(e.message, e.status);
+      throw e;
+    }
+    await this.vault.put(`apps/${id}/ios/appstore.json`, Buffer.from(JSON.stringify(key)));
+    const at = new Date().toISOString();
+    ios.appStore = { keyId: key.keyId, issuerId: key.issuerId, appId: null, appName: null, checkedAt: null, message: null, updatedAt: at };
+    ios.updatedAt = app.updatedAt = at;
+    await this.save(app);
+    return { app, key };
+  }
+
+  async clearAppStoreKey(id: string): Promise<AppRecord> {
+    const app = await this.require(id);
+    const ios = this.iosOf(app);
+    await this.vault.remove(`apps/${id}/ios/appstore.json`);
+    ios.appStore = null;
+    ios.updatedAt = app.updatedAt = new Date().toISOString();
+    await this.save(app);
+    return app;
+  }
+
+  /** Records what App Store Connect last said about the app's key (found the app, or why not). */
+  async noteAppStore(id: string, patch: Pick<AppStoreKeyInfo, 'appId' | 'appName' | 'message'>): Promise<AppRecord> {
+    const app = await this.require(id);
+    if (!app.ios?.appStore) return app;
+    app.ios.appStore = { ...app.ios.appStore, ...patch, checkedAt: new Date().toISOString() };
+    await this.save(app);
+    return app;
+  }
+
+  async appStoreKey(app: AppRecord): Promise<AppStoreKey | null> {
+    if (!app.ios?.appStore) return null;
+    const blob = await this.vault.get(`apps/${app.id}/ios/appstore.json`);
+    return blob ? (JSON.parse(blob.toString('utf8')) as AppStoreKey) : null;
+  }
+
+  /** The certificate and every profile a Mac needs to sign the app, out of the vault. */
+  async iosSigning(app: AppRecord): Promise<{ p12: Buffer; password: string; profiles: Array<{ uuid: string; data: Buffer }> } | null> {
+    if (!app.ios?.certificate) return null;
+    const [p12, secrets] = await Promise.all([this.vault.get(`apps/${app.id}/ios/certificate.p12`), this.vault.get(`apps/${app.id}/ios/certificate.json`)]);
+    if (!p12 || !secrets) return null;
+    const profiles: Array<{ uuid: string; data: Buffer }> = [];
+    for (const p of app.ios.profiles) {
+      const data = await this.vault.get(`apps/${app.id}/ios/profiles/${p.uuid.toLowerCase()}.mobileprovision`);
+      if (data) profiles.push({ uuid: p.uuid, data });
+    }
+    return { p12, password: (JSON.parse(secrets.toString('utf8')) as { password: string }).password, profiles };
+  }
+
+  private iosOf(app: AppRecord): IosSetup {
+    if (!app.ios) throw new AppError(`${app.name} has no iOS setup yet: enter its bundle ID first.`, 409);
+    return app.ios;
+  }
+
   // ─── Run numbers ─────────────────────────────────────────────────────────────────────
 
   /** The next run number of this app (#1, #2, …), never reused. */
@@ -341,7 +527,7 @@ export class AppStore {
     return next;
   }
 
-  snapshot(app: AppRecord): RunApp {
+  snapshot(app: AppRecord, platform: Platform = 'android'): RunApp {
     return {
       id: app.id,
       name: app.name,
@@ -349,6 +535,7 @@ export class AppStore {
       signing: app.signing.mode,
       projectPath: app.repo?.path ?? '',
       certSha256: app.signing.mode === 'console' ? (app.signing.certificate?.sha256 ?? null) : null,
+      ...(platform === 'ios' && app.ios ? { bundleId: app.ios.bundleId, iosCertSha1: app.ios.certificate?.sha1 ?? null } : {}),
     };
   }
 

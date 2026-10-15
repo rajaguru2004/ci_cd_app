@@ -424,7 +424,7 @@ export class GithubActions {
     o: { logsDir: string; artifactsDir: string; save: () => Promise<void>; signal: AbortSignal; log: (text: string) => void; pollMs?: number },
   ): Promise<void> {
     const remote = run.remote;
-    if (!remote?.runId) throw new AppError('This run was never started on GitHub.', 409);
+    if (remote?.kind !== 'github' || !remote.runId) throw new AppError('This run was never started on GitHub.', 409);
     const runId = remote.runId;
     const started = Date.parse(remote.dispatchedAt ?? run.createdAt);
     const copiedLogs = new Set<number>();
@@ -563,7 +563,8 @@ export class GithubActions {
   }
 
   private async copyArtifacts(token: string, run: RunRecord, artifactsDir: string, log: (text: string) => void): Promise<void> {
-    const remote = run.remote!;
+    const remote = run.remote;
+    if (remote?.kind !== 'github') return;
     const want = COPIED_ARTIFACTS.filter((n) => !remote.fetched.includes(n));
     if (!want.length) return;
     const list = await this.client.get<{ artifacts: GhArtifact[] }>(token, `/repos/${remote.repo}/actions/runs/${remote.runId}/artifacts`, { per_page: 100 });

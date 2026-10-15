@@ -11,6 +11,8 @@ import type {
   GithubTokenView,
   HostKey,
   KeyRecord,
+  MacRunnerView,
+  MacsResponse,
   ProjectInfo,
   RunnerKind,
 } from './builder.types';
@@ -114,6 +116,70 @@ export class BuilderClient {
 
   play(id: string, refresh = false): Promise<Record<string, unknown>> {
     return this.send({ method: 'get', url: `/apps/${encodeURIComponent(id)}/play`, params: refresh ? { refresh: 1 } : undefined }, 60_000);
+  }
+
+  // ─── iOS ───────────────────────────────────────────────────────────────────────────
+
+  setIos(id: string, bundleId: string): Promise<AppView> {
+    return this.send({ method: 'put', url: `/apps/${encodeURIComponent(id)}/ios`, data: { bundleId } });
+  }
+
+  clearIos(id: string): Promise<AppView> {
+    return this.send({ method: 'delete', url: `/apps/${encodeURIComponent(id)}/ios` });
+  }
+
+  setIosCertificate(id: string, body: Record<string, unknown>): Promise<AppView> {
+    return this.send({ method: 'put', url: `/apps/${encodeURIComponent(id)}/ios/certificate`, data: body }, 120_000);
+  }
+
+  clearIosCertificate(id: string): Promise<AppView> {
+    return this.send({ method: 'delete', url: `/apps/${encodeURIComponent(id)}/ios/certificate` });
+  }
+
+  addIosProfile(id: string, body: Record<string, unknown>): Promise<AppView> {
+    return this.send({ method: 'post', url: `/apps/${encodeURIComponent(id)}/ios/profiles`, data: body });
+  }
+
+  removeIosProfile(id: string, uuid: string): Promise<AppView> {
+    return this.send({ method: 'delete', url: `/apps/${encodeURIComponent(id)}/ios/profiles/${encodeURIComponent(uuid)}` });
+  }
+
+  setAppStoreKey(id: string, body: Record<string, unknown>): Promise<AppView> {
+    return this.send({ method: 'put', url: `/apps/${encodeURIComponent(id)}/ios/app-store`, data: body }, 60_000);
+  }
+
+  clearAppStoreKey(id: string): Promise<AppView> {
+    return this.send({ method: 'delete', url: `/apps/${encodeURIComponent(id)}/ios/app-store` });
+  }
+
+  appStore(id: string, refresh = false): Promise<Record<string, unknown>> {
+    return this.send({ method: 'get', url: `/apps/${encodeURIComponent(id)}/ios/app-store`, params: refresh ? { refresh: 1 } : undefined }, 60_000);
+  }
+
+  // ─── Mac runners ───────────────────────────────────────────────────────────────────
+
+  macs(): Promise<MacsResponse> {
+    return this.send({ method: 'get', url: '/macs' });
+  }
+
+  createMac(name: string): Promise<{ runner: MacRunnerView; token: string; image: string }> {
+    return this.send({ method: 'post', url: '/macs', data: { name } });
+  }
+
+  renameMac(id: string, name: string): Promise<MacRunnerView> {
+    return this.send({ method: 'patch', url: `/macs/${encodeURIComponent(id)}`, data: { name } });
+  }
+
+  rotateMacToken(id: string): Promise<{ runner: MacRunnerView; token: string; image: string }> {
+    return this.send({ method: 'post', url: `/macs/${encodeURIComponent(id)}/token` });
+  }
+
+  resetMacKey(id: string): Promise<MacRunnerView> {
+    return this.send({ method: 'post', url: `/macs/${encodeURIComponent(id)}/reset-key` });
+  }
+
+  removeMac(id: string): Promise<{ ok: true }> {
+    return this.send({ method: 'delete', url: `/macs/${encodeURIComponent(id)}` });
   }
 
   // ─── Where builds run ──────────────────────────────────────────────────────────────

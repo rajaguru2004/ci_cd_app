@@ -1,6 +1,7 @@
 # Release Console
 
-Build, test and release the organization's Android apps to Google Play from one place. Each
+Build, test and release the organization's Flutter apps — Android to Google Play, and iOS to
+TestFlight and the App Store from Mac runners — from one place. Each
 app is connected once — its repository over SSH, its upload key, its Google Play key — and from
 then on **Release** does the whole thing, on this server by default or, per app, on the
 repository's own GitHub Actions:
@@ -71,6 +72,43 @@ Workflows read and write (classic: `repo` and `workflow`). GitHub runs do not wa
 server's one-build-at-a-time queue; a second release of the same app while one is still
 uploading to Google Play is refused (Google keeps one open edit per app).
 
+## iOS on a Mac runner
+
+An app's iOS side builds and releases on a **Mac runner**: a Mac running the console's runner
+image (`rajaguru2004/release-console-mac-runner`, Docker Hub, Apple silicon and Intel). The
+runner dials in to this console's own address and port (no port opens on the Mac), takes one
+iOS run at a time, and runs its steps on the Mac over SSH: Xcode cannot run inside a container,
+so the container is the agent and the Mac's own Xcode, Flutter, CocoaPods and Fastlane build.
+
+```
+Plan (here: checkout, bundle ID and signing checks, App Store Connect's highest build + 1, source packed)
+  → Tests → Signed IPA → App Store Connect (on the Mac; logs, IPA, dSYMs and the answer come back)
+```
+
+1. **Runners → Add a Mac.** The console shows a token once and the one command for the Mac
+   (`setup-mac.sh`: checks the Mac, writes `~/release-console-runner`, authorizes the runner's
+   SSH key, starts it). The Runners page then shows the Mac ready, or what to fix on it.
+   Details: `apps/mac-runner/README.md`. Step by step, from an empty Mac to a build on
+   TestFlight: [IOS_MAC_RUNNER_GUIDE.md](IOS_MAC_RUNNER_GUIDE.md).
+2. **The app's settings → iOS.** Its bundle ID; the **Apple Distribution certificate** (`.p12`
+   and its password: opened and read before it is stored); its **App Store provisioning
+   profiles** (read, matched to the certificate, the team and the bundle ID); an **App Store
+   Connect API key** (key ID, issuer ID, `.p8`: proven by finding the app).
+3. **Release → Platform: iOS** → TestFlight (internal testers get it once Apple processes it;
+   the notes become "What to Test") or App Store review (released automatically once approved,
+   or by hand). **Rehearsal** asks App Store Connect to validate the IPA and uploads nothing.
+
+- **Build numbers** go above App Store Connect's highest build of the app and every iOS build
+  this console made; the version name is pubspec's (or the sheet's).
+- **Secrets on the Mac:** the certificate, its password, the profiles and the App Store Connect
+  key travel sealed to the runner's own key (pinned on its first connect), live in a per-run
+  0700 folder and a per-run keychain, and are removed when the run ends, failure or cancel
+  included. While the IPA builds, only the run's keychain is searched.
+- **Export compliance** is never answered for the app: declare `ITSAppUsesNonExemptEncryption`
+  in `ios/Runner/Info.plist`, or answer it in App Store Connect once per build.
+- iOS runs do not wait for this server's Android queue; each Mac takes one run at a time, the
+  oldest waiting first. A Mac that stops reporting for three minutes fails its run.
+
 ## Releasing
 
 **Release** (on the app, or on its card): pick the track (internal, alpha, beta, production),
@@ -111,6 +149,10 @@ commit").
   encrypted with GitHub's own public key for the repository (`libsodium`'s sealed box, the same
   scheme GitHub's own CLI uses) before they leave the builder; nothing but GitHub can open them,
   and the console never reads an Actions secret back.
+- **Mac runners** carry their own token (made on the Runners page, kept as a hash) and their
+  own X25519 key, pinned on first connect; a run's iOS secrets are sealed to that key, so the
+  web and api hops and the network see only ciphertext. Serve the console over HTTPS for Macs
+  outside the LAN (the token itself travels in the request).
 - One shared console password (sign-in is rate-limited per address). Keep the console behind
   the VPN or a TLS proxy.
 
@@ -164,6 +206,8 @@ given to an app with `docker compose exec builder node /opt/runner/dist/cli.js a
 | `BUILDER_KEEP_RUNS` | finished runs kept per app (30) |
 | `CONSOLE_PORT`, `CONSOLE_BIND` | published port and address (7080, 0.0.0.0) |
 | `IMAGE_PREFIX`, `IMAGE_TAG` | image names for push/server |
+| `MAC_RUNNER_IMAGE` | the image the Runners page tells a Mac to run (`rajaguru2004/release-console-mac-runner:latest`) |
+| `APP_STORE_API_URL` | App Store Connect's API (default; change only for a stand-in) |
 
 ## Troubleshooting
 
@@ -187,6 +231,11 @@ given to an app with `docker compose exec builder node /opt/runner/dist/cli.js a
 | "This repository has no RELEASE_CONSOLE_KEYSTORE secrets" | Where builds run → Copy secrets to GitHub |
 | "…token needs Workflows and Contents read and write" / "…needs Secrets read and write" | the token's permissions are too narrow; widen them and paste it again |
 | "…are already releasing on GitHub Actions" | wait for one of them to finish; Google Play allows one open edit per app |
+| "No Mac runner is set up yet" | Runners → Add a Mac, and run its setup command on the Mac |
+| An iOS run says "Waiting for a Mac runner" | the Runners page says why no Mac takes it (offline, or what to fix on it) |
+| "…stopped reporting during the run" | the Mac slept, lost its network, or its runner stopped: `docker compose logs runner` on the Mac |
+| "This project builds X …, but the app releases Y on iOS" | correct the bundle ID in the app's settings → iOS, or build the right repository |
+| "No App Store profile covers …" | upload that target's App Store profile (an app extension needs its own) |
 
 ## Layout
 
@@ -194,7 +243,9 @@ given to an app with `docker compose exec builder node /opt/runner/dist/cli.js a
 apps/web/        Next.js UI: apps, add app, app console (commit stream + runs), settings, git keys, setup
 apps/api/        NestJS API: sign-in, apps / keys / runs over the builder, uploads, run detail
 apps/builder/    the builder: vault, SSH keys, git, apps registry, Play client, pipeline, signing,
-                 GitHub Actions (client, tokens, the workflow it writes, following a run)
+                 GitHub Actions (client, tokens, the workflow it writes, following a run),
+                 iOS (ios.ts, appstore.ts) and the Mac runners (macs.ts, mac-jobs.ts, mac-protocol.ts)
+apps/mac-runner/ the Mac runner: its agent, image, docker-compose.yml, setup-mac.sh
 mobile-pipeline/ Fastlane lanes and Gemfile baked into the builder (deploy, play_status)
 scripts/         deploy.sh, capture.mjs (screenshots for design review)
 PRODUCT.md, DESIGN.md, TRACKER.md

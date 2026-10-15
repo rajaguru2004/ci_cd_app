@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { BuilderClient } from '../builder/builder.client';
-import type { AppView, BuilderRun, CommitEntry, RunnerKind } from '../builder/builder.types';
+import type { AppView, BuilderRun, CommitEntry, IosTrack, Platform, RunnerKind } from '../builder/builder.types';
 import { CONSOLE_CONFIG, ConsoleConfig } from '../config';
 import { ARTIFACTS, BuildInfo, errorLines, parseFlutterTestReport, PipelinePlan, ReleaseInfo, TestSummary } from './artifacts';
 import { JobView, jobView, mapStages, PlayTrack, RunState, runState, StageKey, StageState, StageView } from './stages';
@@ -11,15 +11,19 @@ export interface RunSummary {
   id: number;
   /** The run's number within its app (#12). */
   number: number;
-  app: { id: string; name: string; packageName: string } | null;
+  app: { id: string; name: string; packageName: string; bundleId: string | null } | null;
+  /** android, or ios (built and released on a Mac runner). */
+  platform: Platform;
   mode: 'build' | 'release';
-  track: PlayTrack | null;
+  track: PlayTrack | IosTrack | null;
   /** A release Google validates without publishing. */
   rehearsal: boolean;
   /** This server's builder, or the app's GitHub Actions. */
   runner: RunnerKind;
   /** Where to open the run on GitHub, once it has dispatched; null for a server run. */
   remoteUrl: string | null;
+  /** An iOS run: the Mac that has it, and whether it still waits for one. */
+  mac: { runner: string | null; waiting: boolean } | null;
   source: {
     kind: 'git' | 'zip';
     branch: string | null;
@@ -90,6 +94,18 @@ export interface AppOverview extends AppView {
   latestRun: RunSummary | null;
   activeRun: RunSummary | null;
   runCount: number;
+}
+
+/** An iOS release's report (written by the Fastfile's ios deploy lane) read like Google Play's. */
+function storeRelease(rel: ReleaseInfo): ReleaseInfo {
+  return {
+    ...rel,
+    packageName: rel.packageName ?? rel.bundleId ?? '',
+    track: rel.track ?? rel.destination ?? 'testflight',
+    previousHighestVersionCode: rel.previousHighestVersionCode ?? rel.previousHighestBuild ?? null,
+    storeUrl: rel.storeUrl ?? rel.appStoreConnectUrl ?? 'https://appstoreconnect.apple.com/apps',
+    uploadedAt: rel.uploadedAt ?? '',
+  };
 }
 
 const KNOWN_HOSTS: Record<string, (path: string, sha: string) => string> = {
@@ -190,10 +206,11 @@ export class RunsService {
     const jobs = r.jobs;
     const stages = mapStages(jobs, r);
     const art = (p: string) => join(this.runDir(id), 'artifacts', p);
+    const ios = r.params.platform === 'ios';
     const [plan, build, release, tests, artifacts] = await Promise.all([
       this.json<PipelinePlan>(art(`${ARTIFACTS.plan}/plan.json`)),
       this.json<BuildInfo>(art(`${ARTIFACTS.buildInfo}/build-info.json`)),
-      this.json<ReleaseInfo>(art(`${ARTIFACTS.release}/release-info.json`)),
+      this.json<ReleaseInfo>(art(ios ? `${ARTIFACTS.storeRelease}/release-info.json` : `${ARTIFACTS.release}/release-info.json`)).then((rel) => (rel && ios ? storeRelease(rel) : rel)),
       this.tests(art(`${ARTIFACTS.tests}/flutter-test.json`)),
       this.artifacts(id),
     ]);
@@ -226,6 +243,20 @@ export class RunsService {
     return { available: true, text: await this.builder.log(id, jobId) };
   }
 
+  /** An iOS run's IPA, or its dSYMs (crash symbols), as the Mac sent them. */
+  async ipa(id: number, file: 'ipa' | 'dsym'): Promise<{ name: string; path: string; size: number }> {
+    const dir = join(this.runDir(id), 'artifacts', ARTIFACTS.ipa);
+    const path = join(dir, file === 'ipa' ? 'app-release.ipa' : 'dSYMs.zip');
+    const stat = await fs.stat(path).catch(() => null);
+    if (!stat) {
+      throw new NotFoundException(file === 'ipa' ? 'This run has no IPA: it did not reach the build stage on the Mac, or failed there.' : 'This run has no dSYMs.');
+    }
+    const [info, run] = await Promise.all([this.json<BuildInfo>(join(this.runDir(id), 'artifacts', ARTIFACTS.buildInfo, 'build-info.json')), this.builder.run(id)]);
+    const app = (run.app?.id ?? 'app').replace(/[^a-z0-9-]/g, '');
+    const stem = info ? `${app}-${info.versionName}-${info.versionCode}` : `${app}-run-${run.number}`;
+    return { name: file === 'ipa' ? `${stem}.ipa` : `${stem}-dSYMs.zip`, path, size: stat.size };
+  }
+
   async bundle(id: number, file: 'aab' | 'mapping'): Promise<{ name: string; path: string; size: number }> {
     const dir = join(this.runDir(id), 'artifacts', ARTIFACTS.aab);
     const path = file === 'aab' ? join(dir, 'bundle/release/app-release.aab') : join(dir, 'mapping/release/mapping.txt');
@@ -245,12 +276,14 @@ export class RunsService {
     return {
       id: r.id,
       number: r.number,
-      app: r.app ? { id: r.app.id, name: r.app.name, packageName: r.app.packageName } : null,
+      app: r.app ? { id: r.app.id, name: r.app.name, packageName: r.app.packageName, bundleId: r.app.bundleId ?? null } : null,
+      platform: r.params.platform ?? 'android',
       mode: r.params.mode,
       track: r.params.mode === 'release' ? r.params.track : null,
       rehearsal: r.params.rehearsal,
       runner: r.runner,
-      remoteUrl: r.remote?.url ?? null,
+      remoteUrl: r.remote?.kind === 'github' ? r.remote.url : null,
+      mac: r.remote?.kind === 'mac' ? { runner: r.remote.runnerName, waiting: r.status !== 'completed' && (r.remote.state === 'waiting' || r.remote.state === 'offered') } : null,
       source: {
         kind: s.kind,
         branch: s.kind === 'git' ? s.branch : null,

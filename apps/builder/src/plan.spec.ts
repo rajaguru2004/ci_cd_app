@@ -1,10 +1,24 @@
 import { checkParams, chooseVersionCode, resolvePlan } from './plan';
 
 describe('checkParams', () => {
-  it('defaults a build to the internal track, rolled out, no rehearsal, no pinned version code', () => {
+  it('defaults a build to Android, the internal track, rolled out, no rehearsal, no pinned version code', () => {
     expect(checkParams({ mode: 'build' })).toEqual({
-      mode: 'build', track: 'internal', releaseNotes: '', releaseStatus: 'completed', versionName: '', versionCode: null, rehearsal: false,
+      platform: 'android', mode: 'build', track: 'internal', releaseNotes: '', releaseStatus: 'completed', versionName: '', versionCode: null, rehearsal: false,
     });
+  });
+
+  it('takes iOS runs to TestFlight by default, and only to TestFlight or App Store review', () => {
+    expect(checkParams({ platform: 'ios', mode: 'build' })).toMatchObject({ platform: 'ios', track: 'testflight' });
+    expect(checkParams({ platform: 'ios', mode: 'release', track: 'app_store', releaseNotes: 'x' }).track).toBe('app_store');
+    expect(() => checkParams({ platform: 'ios', mode: 'build', track: 'internal' })).toThrow('testflight or app_store');
+    expect(() => checkParams({ mode: 'build', track: 'testflight' })).toThrow('track must be');
+    expect(() => checkParams({ platform: 'windows', mode: 'build' })).toThrow('platform must be');
+  });
+
+  it("allows App Store Connect's 4000 characters of notes on iOS", () => {
+    expect(checkParams({ platform: 'ios', mode: 'release', releaseNotes: 'a'.repeat(4000) }).releaseNotes).toHaveLength(4000);
+    expect(() => checkParams({ platform: 'ios', mode: 'release', releaseNotes: 'a'.repeat(4001) })).toThrow('App Store Connect allows 4000');
+    expect(() => checkParams({ platform: 'ios', mode: 'release', releaseNotes: ' ' })).toThrow('What to Test');
   });
 
   it('requires notes for a release and caps them at 500 characters', () => {
@@ -49,6 +63,16 @@ describe('chooseVersionCode', () => {
 
   it('keeps a pinned code', () => {
     expect(chooseVersionCode({ pinned: 77, playHighest: 1009, usedHighest: 1, pubspecBuild: 2 })).toEqual({ code: 77, from: 'pinned when the run was started' });
+  });
+
+  it('names App Store Connect and build numbers for iOS', () => {
+    expect(chooseVersionCode({ pinned: null, playHighest: 41, usedHighest: 0, pubspecBuild: 9, store: 'App Store Connect', unit: 'build number' })).toEqual({
+      code: 42,
+      from: "App Store Connect's highest, 41, + 1",
+    });
+    expect(chooseVersionCode({ pinned: null, playHighest: null, usedHighest: 50, pubspecBuild: 9, store: 'App Store Connect', unit: 'build number' }).from).toBe(
+      'the last build number this console built for the app, 50, + 1',
+    );
   });
 });
 

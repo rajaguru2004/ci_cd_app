@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useRef, useState } from 'react';
 import clsx from 'clsx';
-import { Check, ChevronDown, ChevronRight, CircleDot, CircleX, KeyRound, LayoutGrid, LogOut, Plus, Settings2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, CircleDot, CircleX, KeyRound, Laptop, LayoutGrid, LogOut, Plus, Settings2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { AppView } from '@/lib/types';
 import { useBuilder } from '@/lib/useBuilder';
@@ -28,6 +28,7 @@ export function Mark({ size = 32 }: { size?: number }) {
 
 const NAV = [
   { href: '/', label: 'Apps', icon: LayoutGrid },
+  { href: '/runners', label: 'Runners', icon: Laptop },
   { href: '/keys', label: 'Git keys', icon: KeyRound },
   { href: '/setup', label: 'Setup', icon: Settings2 },
 ];
@@ -125,6 +126,22 @@ function BuilderChip() {
         </span>
         {c.job && <span className="hidden text-muted xl:inline">· {c.job}</span>}
         {status.queued > 0 && <span className="text-muted">+{status.queued}</span>}
+      </Link>
+    );
+  }
+  // The server is idle; an iOS run may be on (or waiting for) a Mac.
+  const mac = status.onMac?.[0];
+  if (mac) {
+    const words = mac.waiting && !mac.runner ? `${mac.appName} #${mac.number} waits for a Mac` : `${mac.appName} #${mac.number} on ${mac.runner ?? 'a Mac'}`;
+    return (
+      <Link
+        href={mac.appId ? `/apps/${mac.appId}?run=${mac.id}` : '/runners'}
+        className="flex h-9 min-w-0 items-center gap-1.5 rounded-full border border-line bg-card px-2.5 text-[13px] text-run-ink transition-colors hover:border-brand/30 hover:bg-brand-wash"
+        title={`${words}${mac.job ? ` · ${mac.job}` : ''}`}
+      >
+        <Laptop size={15} strokeWidth={2.2} aria-hidden color="var(--color-run)" />
+        <span className="hidden truncate font-medium md:inline">{words}</span>
+        {(status.onMac?.length ?? 0) > 1 && <span className="text-muted">+{(status.onMac?.length ?? 1) - 1}</span>}
       </Link>
     );
   }

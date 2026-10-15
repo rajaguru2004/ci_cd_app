@@ -96,7 +96,8 @@ export function normalize(run: RunRecord): RunRecord {
     app: run.app ?? null,
     number: run.number ?? run.id,
     source,
-    params: { ...run.params, versionCode: run.params?.versionCode ?? null },
+    // Runs recorded before iOS existed were all Android runs.
+    params: { ...run.params, platform: run.params?.platform ?? 'android', versionCode: run.params?.versionCode ?? null },
     // Runs recorded before GitHub Actions came back all ran on this server.
     runner: run.runner ?? 'server',
     remote: run.remote ?? null,

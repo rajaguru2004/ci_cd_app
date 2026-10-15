@@ -1,14 +1,21 @@
+import type { HostFacts } from './mac-protocol';
+
 /**
  * What the builder keeps on disk: apps, the keys that reach their repositories, and runs.
  *
  * A run is recorded in the shape GitHub reports workflow runs and jobs (status / conclusion /
  * started_at / steps), so the console reads every run with the same stage mapping: six
- * stages from the job and step names below, whether the run executed on this server or on
- * GitHub Actions (whose jobs are mirrored into the record as they progress).
+ * stages from the job and step names below, whether the run executed on this server, on
+ * GitHub Actions or on a Mac runner (whose jobs are mirrored into the record as they progress).
  */
 
 export type Mode = 'build' | 'release';
+/** What a run builds: the Android app bundle for Google Play, or the iOS app for App Store Connect. */
+export type Platform = 'android' | 'ios';
 export type PlayTrack = 'internal' | 'alpha' | 'beta' | 'production';
+/** Where an iOS release goes: TestFlight, or on to App Store review. */
+export type IosTrack = 'testflight' | 'app_store';
+export type Track = PlayTrack | IosTrack;
 export type Status = 'queued' | 'in_progress' | 'completed';
 export type Conclusion = 'success' | 'failure' | 'cancelled' | 'skipped' | null;
 
@@ -52,8 +59,8 @@ export interface CertInfo {
   algorithm: string;
 }
 
-/** Where an app's runs execute. */
-export type RunnerKind = 'server' | 'github';
+/** Where an app's runs execute: Android on this server or GitHub Actions; iOS always on a Mac runner. */
+export type RunnerKind = 'server' | 'github' | 'mac';
 
 /** What the console last found on GitHub for an app that builds there. */
 export interface GithubCheck {
@@ -85,6 +92,58 @@ export interface GithubSetup {
   secrets: { syncedAt: string | null; hash: string | null };
 }
 
+/** The Apple Distribution certificate an app's IPA is signed with (its .p12 is in the vault). */
+export interface IosCertificate {
+  fileName: string;
+  /** The certificate's common name, e.g. "Apple Distribution: Acme Ltd (A1B2C3D4E5)". */
+  name: string;
+  teamId: string | null;
+  kind: 'distribution' | 'development' | 'other';
+  sha1: string;
+  sha256: string;
+  validFrom: string;
+  validUntil: string;
+  uploadedAt: string;
+}
+
+/** A provisioning profile the app's targets are signed with (the file is in the vault). */
+export interface IosProfile {
+  uuid: string;
+  name: string;
+  teamId: string;
+  /** The App ID it covers, without the team prefix: com.acme.app, com.acme.*, or *. */
+  appId: string;
+  type: 'app-store' | 'ad-hoc' | 'development' | 'enterprise';
+  expiresAt: string;
+  /** SHA-1 of every certificate the profile allows, upper-case hex without colons. */
+  certificates: string[];
+  fileName: string;
+  uploadedAt: string;
+}
+
+/** The App Store Connect API key an app uploads with (the .p8 itself is in the vault). */
+export interface AppStoreKeyInfo {
+  keyId: string;
+  issuerId: string;
+  /** App Store Connect's own id and name for the app, found by its bundle ID; null until found. */
+  appId: string | null;
+  appName: string | null;
+  checkedAt: string | null;
+  /** What App Store Connect last said was wrong, as a sentence; null when it answered. */
+  message: string | null;
+  updatedAt: string;
+}
+
+/** The iOS half of a Flutter app: built and released from a Mac runner. */
+export interface IosSetup {
+  /** CFBundleIdentifier of the app (the Runner target). */
+  bundleId: string;
+  certificate: IosCertificate | null;
+  profiles: IosProfile[];
+  appStore: AppStoreKeyInfo | null;
+  updatedAt: string;
+}
+
 export interface AppRecord {
   /** Slug from the name, unique, used in URLs and folders. */
   id: string;
@@ -108,8 +167,10 @@ export interface AppRecord {
     projectId: string | null;
     updatedAt: string | null;
   };
-  /** Where Build and Release run by default; a run can pick the other. */
-  runner: { kind: RunnerKind; github: GithubSetup | null };
+  /** Where Android's Build and Release run by default; a run can pick the other. */
+  runner: { kind: Exclude<RunnerKind, 'mac'>; github: GithubSetup | null };
+  /** Null until the app's iOS side is set up (bundle ID, signing, App Store Connect). */
+  ios: IosSetup | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -117,13 +178,17 @@ export interface AppRecord {
 // ─── Runs ──────────────────────────────────────────────────────────────────────────────
 
 export interface RunParams {
+  /** android for every run recorded before iOS existed. */
+  platform: Platform;
   mode: Mode;
-  track: PlayTrack;
+  /** A Google Play track (Android) or TestFlight / App Store review (iOS). */
+  track: Track;
   releaseNotes: string;
+  /** Android: roll out or keep as a draft. iOS App Store review: release when approved, or by hand. */
   releaseStatus: 'completed' | 'draft';
   /** Blank = the version in pubspec.yaml. */
   versionName: string;
-  /** Pinned only when asked; otherwise the Plan job takes the next free code from Google Play. */
+  /** Pinned only when asked; otherwise the Plan job takes the next free code (Android) or build number (iOS). */
   versionCode: number | null;
   rehearsal: boolean;
 }
@@ -137,6 +202,10 @@ export interface RunApp {
   projectPath: string;
   /** The upload certificate the bundle must carry when the console signs. */
   certSha256?: string | null;
+  /** iOS runs: the bundle ID the IPA is built for. */
+  bundleId?: string | null;
+  /** iOS runs: the SHA-1 of the distribution certificate the IPA must carry. */
+  iosCertSha1?: string | null;
 }
 
 export interface CommitInfo {
@@ -197,7 +266,7 @@ export interface JobRecord {
 }
 
 /** A run executing on GitHub Actions: the workflow run the console started and follows. */
-export interface RemoteRun {
+export interface GithubRemote {
   kind: 'github';
   /** owner/name */
   repo: string;
@@ -211,11 +280,31 @@ export interface RemoteRun {
   fetched: string[];
 }
 
+/** A run whose jobs execute on a Mac runner: the console plans it, a Mac takes it and reports back. */
+export interface MacRemote {
+  kind: 'mac';
+  /** Waiting for a free Mac, offered to one (not yet accepted), running there, or over. */
+  state: 'waiting' | 'offered' | 'running' | 'done';
+  runnerId: string | null;
+  runnerName: string | null;
+  queuedAt: string | null;
+  offeredAt: string | null;
+  acceptedAt: string | null;
+  /** The Mac's last report about this run. */
+  lastHeardAt: string | null;
+  /** A cancel waiting to reach the Mac with its next report. */
+  cancelRequested: boolean;
+}
+
+export type RemoteRun = GithubRemote | MacRemote;
+
 export interface Plan {
+  /** android for every plan made before iOS existed. */
+  platform?: Platform;
   mode: Mode;
   trigger: 'git' | 'upload';
   tag: null;
-  track: PlayTrack;
+  track: Track;
   releaseStatus: 'completed' | 'draft';
   versionName: string;
   versionCode: number;
@@ -228,6 +317,7 @@ export interface Plan {
   requestId: null;
   commit: string;
   ref: string;
+  /** The Android package, or the iOS bundle ID. */
   packageName: string;
 }
 
@@ -250,7 +340,33 @@ export interface RunRecord {
   jobs: JobRecord[];
   /** Run-level problem that is not a step's (e.g. the builder restarted mid-run). */
   error: string | null;
-  /** This server's builder, or GitHub Actions. */
+  /** This server's builder, GitHub Actions, or a Mac runner. */
   runner: RunnerKind;
   remote: RemoteRun | null;
+}
+
+// ─── Mac runners ───────────────────────────────────────────────────────────────────────
+
+export type { HostFacts };
+
+/** A Mac the console may hand iOS runs to. The record holds no secret: the token is kept as a hash. */
+export interface MacRunnerRecord {
+  id: string;
+  name: string;
+  /** SHA-256 (hex) of the token's secret part. */
+  tokenHash: string;
+  /** The token's last four characters, to tell tokens apart. */
+  tokenHint: string;
+  tokenCreatedAt: string;
+  /** The agent's X25519 public key (base64), pinned on its first connect; run secrets are sealed to it. */
+  publicKey: string | null;
+  keyFingerprint: string | null;
+  keyPinnedAt: string | null;
+  /** A different key the agent offered since (refused until someone resets the pin). */
+  refusedKey: { fingerprint: string; at: string } | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+  lastAddress: string | null;
+  agent: { version: string; executor: 'ssh' | 'local'; hostUser: string | null; hostAddress: string | null } | null;
+  host: HostFacts | null;
 }

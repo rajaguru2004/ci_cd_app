@@ -10,7 +10,7 @@ import { usePoll } from '@/lib/usePoll';
 import { LogPane } from './LogPane';
 import { Outputs } from './Outputs';
 import { StageStrip } from './StageStrip';
-import { RUN_INK, RUN_WORD, StageRing, StateGlyph, runAsStage, STAGE_LABELS } from './stage';
+import { RUN_INK, RUN_WORD, StageRing, StateGlyph, runAsStage, stageLabel } from './stage';
 
 function triggerText(run: RunSummary): string {
   const how = run.source.kind === 'zip' ? 'built from an uploaded ZIP' : `pulled from ${run.source.branch ?? 'the repository'}`;
@@ -103,13 +103,22 @@ export function RunPanel({
   let headline = `${RUN_WORD[run.state]}`;
   if (run.state === 'failed' && failedStage) headline = `Failed at ${failedStage.label}`;
   const rehearsal = Boolean(detail.plan?.rehearsal ?? run.rehearsal);
+  const ios = run.platform === 'ios';
   if (run.state === 'success' && detail.release) {
-    headline = rehearsal || detail.release.validatedOnly
-      ? `Rehearsal passed · Google Play accepted it, nothing published`
-      : `On Google Play · ${detail.release.track}`;
+    headline = ios
+      ? rehearsal || detail.release.validatedOnly
+        ? 'Rehearsal passed · App Store Connect validated it, nothing uploaded'
+        : detail.release.submittedForReview
+          ? 'Submitted for App Store review'
+          : 'On TestFlight'
+      : rehearsal || detail.release.validatedOnly
+        ? `Rehearsal passed · Google Play accepted it, nothing published`
+        : `On Google Play · ${detail.release.track}`;
   }
-  if (run.state === 'success' && !detail.release && (detail.plan?.mode ?? run.mode) === 'build') headline = 'Passed · AAB ready';
-  if (run.state === 'queued') headline = 'Queued · the builder runs one build at a time';
+  if (run.state === 'success' && !detail.release && (detail.plan?.mode ?? run.mode) === 'build') headline = ios ? 'Passed · IPA ready' : 'Passed · AAB ready';
+  if (run.state === 'queued') headline = ios ? 'Queued · planning on the console' : 'Queued · the builder runs one build at a time';
+  if (run.mac?.waiting) headline = run.mac.runner ? `Starting on ${run.mac.runner}` : 'Waiting for a Mac runner';
+  else if (ios && run.state === 'running' && run.mac?.runner) headline = `Running on ${run.mac.runner}`;
 
   return (
     <article className="space-y-5" aria-labelledby="run-title">
@@ -257,7 +266,7 @@ export function RunPanel({
         <section aria-labelledby="failure-title" className="rounded-[var(--radius-panel)] border border-fail/25 bg-fail-wash px-5 py-4 md:px-6">
           <h2 id="failure-title" className="flex items-center gap-2 text-[15px] font-bold text-fail-ink">
             <TriangleAlert size={16} aria-hidden />
-            {detail.failure.stage ? STAGE_LABELS[detail.failure.stage] : detail.failure.jobName}
+            {detail.failure.stage ? stageLabel(detail.failure.stage, run.platform) : detail.failure.jobName}
             {detail.failure.step ? ` › ${detail.failure.step}` : ''}
           </h2>
           {detail.failure.messages.length > 0 ? (

@@ -39,6 +39,12 @@ export interface BuilderConfig {
   flutterVersion: string;
   /** GitHub's REST API, for apps that build on GitHub Actions. */
   githubApiUrl: string;
+  /** App Store Connect's API, for iOS apps (their build numbers, and proving a key works). */
+  appStoreApiUrl: string;
+  /** The Mac runner's image, as the console tells a Mac to pull it. */
+  macRunnerImage: string;
+  /** The Mac runner's setup files (docker-compose.yml, setup-mac.sh, .env.example) served to a Mac. */
+  macRunnerDir: string;
 }
 
 const num = (v: string | undefined, fallback: number) => {
@@ -76,6 +82,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): BuilderConfig 
     gitTimeoutMs: num(env.GIT_TIMEOUT_MS, 10 * 60 * 1000),
     flutterVersion: (env.TOOLCHAIN_FLUTTER || '3.47.5').trim(),
     githubApiUrl: (env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, ''),
+    appStoreApiUrl: (env.APP_STORE_API_URL || 'https://api.appstoreconnect.apple.com').replace(/\/+$/, ''),
+    macRunnerImage: (env.MAC_RUNNER_IMAGE || 'rajaguru2004/release-console-mac-runner:latest').trim(),
+    macRunnerDir: env.MAC_RUNNER_DIR || '/opt/mac-runner',
   };
 }
 

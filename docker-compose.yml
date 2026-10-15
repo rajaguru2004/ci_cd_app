@@ -1,11 +1,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Release Console: build, test and release the organization's Android apps
+# Release Console: build, test and release the organization's Android and iOS apps
 #
 #   web      Next.js UI on ${CONSOLE_PORT:-7080}; proxies /api/* to the api service
 #   api      NestJS: sign-in, apps, runs; holds no repository, signing or Play key
-#   builder  the vault (SSH keys, upload keystores, Play keys, sealed with VAULT_KEY),
-#            git over SSH, and the pipeline (Flutter, Android SDK, Fastlane);
+#   builder  the vault (SSH keys, upload keystores, Play keys, iOS certificates and App
+#            Store Connect keys, sealed with VAULT_KEY), git over SSH, the Android pipeline
+#            (Flutter, Android SDK, Fastlane), and the queue of iOS runs for the Mac runners;
 #            reachable only by the api
+#
+# iOS builds run on Macs: each runs apps/mac-runner (an image pushed to Docker Hub), which
+# dials in to this console's own port (/api/runner/v1, through web and api) and takes runs.
 #
 # Apps, runs, logs and AABs live in the `builds` volume; repository mirrors and
 # the vault live there too, readable by the builder's root only.
@@ -99,6 +103,11 @@ services:
       # An app's own GitHub token reaches this (or GitHub Enterprise Server) to plan, start and
       # follow its runs there; the app's secrets (keystore, Play key) are never sent elsewhere.
       GITHUB_API_URL: ${GITHUB_API_URL:-https://api.github.com}
+      # iOS: App Store Connect (build numbers, checking an app's key), and the image a Mac
+      # runner pulls (the Runners page shows it). The Macs themselves connect through the web
+      # service's port like the browser does (/api/runner/v1/…).
+      APP_STORE_API_URL: ${APP_STORE_API_URL:-https://api.appstoreconnect.apple.com}
+      MAC_RUNNER_IMAGE: ${MAC_RUNNER_IMAGE:-rajaguru2004/release-console-mac-runner:latest}
     volumes:
       - builds:/data
       # Optional: the default Google Play key for apps without one of their own.

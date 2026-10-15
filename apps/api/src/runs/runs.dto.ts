@@ -1,32 +1,39 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
-import type { RunnerKind } from '../builder/builder.types';
-import { PLAY_TRACKS, type PlayTrack } from './stages';
+import type { IosTrack, Platform, RunnerKind } from '../builder/builder.types';
+import { IOS_TRACKS, PLAY_TRACKS, type PlayTrack } from './stages';
 
-/** Google Play caps "What's new" at 500 characters per language. */
+/** Google Play caps "What's new" at 500 characters per language; the builder holds Android to that. */
 export const MAX_RELEASE_NOTES = 500;
+/** TestFlight's "What to Test" takes 4000. */
+export const MAX_IOS_NOTES = 4000;
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 const bool = ({ value }: { value: unknown }) => value === true || value === 'true';
 
 /** What a run does; the same fields for a git run (JSON) and a ZIP run (multipart text). */
 export class RunOptionsDto {
+  /** Omitted: Android. iOS runs build and release on a Mac runner. */
+  @IsOptional()
+  @IsIn(['android', 'ios'], { message: 'platform must be android or ios.' })
+  platform?: Platform;
+
   @IsIn(['build', 'release'], { message: 'mode must be build or release.' })
   mode!: 'build' | 'release';
 
   /** Omitted: the app's own default (its settings → Where builds run). */
   @IsOptional()
   @IsIn(['server', 'github'], { message: 'runner must be server or github.' })
-  runner?: RunnerKind;
+  runner?: Exclude<RunnerKind, 'mac'>;
 
   @IsOptional()
-  @IsIn(PLAY_TRACKS, { message: `track must be one of: ${PLAY_TRACKS.join(', ')}.` })
-  track?: PlayTrack;
+  @IsIn([...PLAY_TRACKS, ...IOS_TRACKS], { message: `track must be one of: ${[...PLAY_TRACKS, ...IOS_TRACKS].join(', ')}.` })
+  track?: PlayTrack | IosTrack;
 
   @IsOptional()
   @Transform(trim)
   @IsString()
-  @MaxLength(MAX_RELEASE_NOTES, { message: `Release notes must be at most ${MAX_RELEASE_NOTES} characters; Google Play allows no more.` })
+  @MaxLength(MAX_IOS_NOTES, { message: `Release notes must be at most ${MAX_IOS_NOTES} characters.` })
   releaseNotes?: string;
 
   @IsOptional()
@@ -66,9 +73,11 @@ export class UploadRunDto extends RunOptionsDto {
 }
 
 export function params(dto: RunOptionsDto) {
+  const platform = dto.platform ?? 'android';
   return {
+    platform,
     mode: dto.mode,
-    track: dto.track ?? 'internal',
+    track: dto.track ?? (platform === 'ios' ? 'testflight' : 'internal'),
     releaseNotes: dto.mode === 'release' ? (dto.releaseNotes ?? '') : '',
     releaseStatus: dto.releaseStatus ?? 'completed',
     versionName: dto.versionName ?? '',
